@@ -16,6 +16,8 @@ git clone https://github.com/coreos/helm-app-operator-kit
 cd helm-app-operator-kit
 ```
 
+asdfsadf
+
 ### Prerequisites
 
 - Kubernetes 1.9+ cluster
