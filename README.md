@@ -39,7 +39,7 @@ File                          | Action
 `deploy/crd.yaml`             | Define your CRD (`kind`, `spec.version`, `spec.group` *must* match the `docker build` args)
 `deploy/cr.yaml`              | Make an instance of your custom resource (`kind`, `apiVersion` *must match the `docker build` args)
 `deploy/operator.yaml`        | Replace `<namespace>` and `<chart>` appropriately
-`deploy/rbac.yaml`            | Ensure the resources created by your chart are properly listed
+`deploy/rbac.yaml`            | Replace `app.coreos.com` with CRD group and ensure the resources created by your chart are properly listed
 `deploy/olm-catalog/csv.yaml`             | Replace fields appropriately. Define RBAC in `spec.install.spec.permissions`. Ensure `spec.customresourcedefinitions.owned` correctly contains your CRD
 `deploy/olm-catalog/crd.yaml` | Define your CRD (`kind`, `spec.version`, `spec.group` *must* match the `docker build` args)
 
