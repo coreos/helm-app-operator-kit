@@ -1,5 +1,5 @@
-apiVersion: app.coreos.com/v1alpha1
-kind: ClusterServiceVersion-v1
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
 metadata:
   name: tomcat-operator.v0.0.1
 spec:
@@ -76,9 +76,7 @@ spec:
                       fieldRef:
                         fieldPath: metadata.namespace
                   - name: WATCH_NAMESPACE
-                    valueFrom:
-                      fieldRef:
-                        fieldPath: metadata.namespace
+                    value: "*"
                   - name: MY_POD_NAME
                     valueFrom:
                       fieldRef:

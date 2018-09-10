@@ -21,3 +21,5 @@ _output
 .kube
 .vscode
 .idea
+
+examples/tomcat-operator/chart

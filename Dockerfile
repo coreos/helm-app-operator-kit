@@ -4,8 +4,9 @@ ARG API_VERSION
 ARG KIND
 WORKDIR /go/src/github.com/operator-framework/helm-app-operator-kit/helm-app-operator
 COPY helm-app-operator .
-RUN curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-RUN dep ensure -v
+# FIXME(alecmerdler): Takes forever to download all dependencies
+# RUN curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+# RUN dep ensure -v
 RUN CGO_ENABLED=0 GOOS=linux go build -o bin/operator cmd/helm-app-operator/main.go
 RUN chmod +x bin/operator
 
