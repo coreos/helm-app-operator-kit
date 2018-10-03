@@ -1,9 +1,10 @@
-package v1alpha1
+package api
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/helm/pkg/proto/hapi/release"

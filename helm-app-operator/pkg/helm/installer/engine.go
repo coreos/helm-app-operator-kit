@@ -1,10 +1,10 @@
-package helm
+package installer
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -13,17 +13,17 @@ import (
 	"k8s.io/helm/pkg/tiller/environment"
 )
 
-// OwnerRefEngine wraps a tiller Render engine, adding ownerrefs to rendered assets
-type OwnerRefEngine struct {
+// ownerRefEngine wraps a tiller Render engine, adding ownerrefs to rendered assets
+type ownerRefEngine struct {
 	environment.Engine
 	refs []metav1.OwnerReference
 }
 
 // assert interface
-var _ environment.Engine = &OwnerRefEngine{}
+var _ environment.Engine = &ownerRefEngine{}
 
 // Render proxies to the wrapped Render engine and then adds ownerRefs to each rendered file
-func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (map[string]string, error) {
+func (o *ownerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (map[string]string, error) {
 	rendered, err := o.Engine.Render(chart, values)
 	if err != nil {
 		return nil, err
@@ -34,13 +34,12 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 		if !strings.HasSuffix(fileName, ".yaml") {
 			continue
 		}
-		logrus.Infof("adding ownerrefs to file: %s", fileName)
 		withOwner, err := o.addOwnerRefs(renderedFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed adding ownerrefs to file %s: %s", fileName, err)
 		}
 		if withOwner == "" {
-			logrus.Infof("skipping empty template: %s", fileName)
+			log.Printf("skipping empty template: %s", fileName)
 			continue
 		}
 		ownedRenderedFiles[fileName] = withOwner
@@ -49,7 +48,7 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 }
 
 // addOwnerRefs adds the configured ownerRefs to a single rendered file
-func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
+func (o *ownerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 	parsed := chartutil.FromYaml(fileContents)
 	if errors, ok := parsed["Error"]; ok {
 		return "", fmt.Errorf("error parsing rendered template to add ownerrefs: %v", errors)
@@ -69,9 +68,9 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 	return chartutil.ToYaml(unstructured.Object), nil
 }
 
-// NewOwnerRefEngine creates a new OwnerRef engine with a set of metav1.OwnerReferences to be added to assets
-func NewOwnerRefEngine(baseEngine environment.Engine, refs []metav1.OwnerReference) environment.Engine {
-	return &OwnerRefEngine{
+// newOwnerRefEngine creates a new OwnerRef engine with a set of metav1.OwnerReferences to be added to assets
+func newOwnerRefEngine(baseEngine environment.Engine, refs []metav1.OwnerReference) environment.Engine {
+	return &ownerRefEngine{
 		Engine: baseEngine,
 		refs:   refs,
 	}

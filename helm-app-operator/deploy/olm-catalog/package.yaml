@@ -1,4 +1,0 @@
-packageName: <chart>
-channels:
-- name: alpha
-  currentCSV: <chart>-operator.v0.0.1

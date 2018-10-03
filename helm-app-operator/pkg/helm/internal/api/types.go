@@ -1,4 +1,4 @@
-package v1alpha1
+package api
 
 import (
 	"encoding/json"
@@ -8,25 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/helm/pkg/proto/hapi/release"
 )
-
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-
-type HelmAppList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
-	Items           []HelmApp `json:"items"`
-}
-
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-
-type HelmApp struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata"`
-	Spec              HelmAppSpec   `json:"spec"`
-	Status            HelmAppStatus `json:"status,omitempty"`
-}
-
-type HelmAppSpec map[string]interface{}
 
 type ResourcePhase string
 
