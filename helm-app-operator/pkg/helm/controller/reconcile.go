@@ -14,10 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const (
-	operatorName = "helm-app-operator"
-)
-
 type helmOperatorReconciler struct {
 	GVK       schema.GroupVersionKind
 	Installer installer.Installer
