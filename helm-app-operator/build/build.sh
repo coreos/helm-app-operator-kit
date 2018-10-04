@@ -12,7 +12,7 @@ fi
 BIN_DIR="$(pwd)/build/_output/bin"
 mkdir -p ${BIN_DIR}
 PROJECT_NAME=helm-app-operator
-REPO_PATH=github.com/operator-framework/helm-app-operator
+REPO_PATH=github.com/operator-framework/helm-app-operator-kit/helm-app-operator
 BUILD_PATH="${REPO_PATH}/cmd/manager"
 echo "building "${PROJECT_NAME}"..."
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o ${BIN_DIR}/${PROJECT_NAME} $BUILD_PATH
