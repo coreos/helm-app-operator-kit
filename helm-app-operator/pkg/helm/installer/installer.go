@@ -98,48 +98,32 @@ type watch struct {
 // NewFromEnv returns a map of installers based on configuration provided in
 // the environment.
 func NewFromEnv(tillerKubeClient *kube.Client, storageBackend *storage.Storage) (map[schema.GroupVersionKind]Installer, error) {
-	// Order of precedence:
-	// 1. HELM_CHART_WATCHES
-	// 2. Default watches file
-	// 3. API_VERSION, KIND, and HELM_CHART
-
-	m := map[schema.GroupVersionKind]Installer{}
-
-	// Determine the watches file to use
-	watchesFile, ok := os.LookupEnv(HelmChartWatchesEnvVar)
-	if !ok {
-		watchesFile = defaultHelmChartWatchesFile
+	// If there is a watches file available, get Installers from it
+	if watchesFile, ok := getWatchesFile(); ok {
+		return NewFromWatches(tillerKubeClient, storageBackend, watchesFile)
 	}
 
-	if _, err := os.Stat(watchesFile); !ok && err != nil {
-		// If the watches file environment variable is unset, and the default
-		// watches file is not present, use API_VERSION, KIND, and HELM_CHART
-		// to setup an installer.
-		gv, err := schema.ParseGroupVersion(os.Getenv(APIVersionEnvVar))
-		if err != nil {
-			return nil, err
-		}
-
-		kind := os.Getenv(KindEnvVar)
-		chartDir := os.Getenv(HelmChartEnvVar)
-
-		s := schema.GroupVersionKind{
-			Group:   gv.Group,
-			Version: gv.Version,
-			Kind:    kind,
-		}
-		if chartDir == "" {
-			return nil, fmt.Errorf("chart must be defined for %v", s)
-		}
-		m[s] = New(tillerKubeClient, storageBackend, chartDir)
-	} else {
-		// Otherwise, load the installers using the watches file from the
-		// environment (if present) or the default (if not).
-		m, err = NewFromWatches(tillerKubeClient, storageBackend, watchesFile)
-		if err != nil {
-			return nil, err
-		}
+	// Otherwise, we'll fall back to the GVK environment variables
+	gv, err := schema.ParseGroupVersion(os.Getenv(APIVersionEnvVar))
+	if err != nil {
+		return nil, err
 	}
+	kind := os.Getenv(KindEnvVar)
+	s := schema.GroupVersionKind{
+		Group:   gv.Group,
+		Version: gv.Version,
+		Kind:    kind,
+	}
+
+	chartDir := os.Getenv(HelmChartEnvVar)
+	if chartDir == "" {
+		return nil, fmt.Errorf("chart must be defined for %v", s)
+	}
+
+	m := map[schema.GroupVersionKind]Installer{
+		s: New(tillerKubeClient, storageBackend, chartDir),
+	}
+
 	return m, nil
 }
 
@@ -171,6 +155,9 @@ func NewFromWatches(tillerKubeClient *kube.Client, storageBackend *storage.Stora
 			return nil, fmt.Errorf("chart must be defined for %v", s)
 		}
 		m[s] = New(tillerKubeClient, storageBackend, w.Chart)
+	}
+	if len(m) == 0 {
+		return nil, fmt.Errorf("no watches configured in watches file")
 	}
 	return m, nil
 }
@@ -343,4 +330,18 @@ func setOperatorName() {
 	if v != "" {
 		operatorName = v
 	}
+}
+
+func getWatchesFile() (string, bool) {
+	// If the watches env variable is set (even if it's an empty string), use it
+	// since the user explicitly set it.
+	if watchesFile, ok := os.LookupEnv(HelmChartWatchesEnvVar); ok {
+		return watchesFile, true
+	}
+
+	// Next, check if the default watches file is present. If so, use it.
+	if _, err := os.Stat(defaultHelmChartWatchesFile); err == nil {
+		return defaultHelmChartWatchesFile, true
+	}
+	return "", false
 }
