@@ -43,7 +43,7 @@ func (r *helmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
-		log.Printf("Failed to get %s: %v", r.GVK.Kind, err)
+		log.Printf("Failed to get %s %s/%s: %v", r.GVK.Kind, request.Namespace, request.Name, err)
 		return reconcile.Result{}, err
 	}
 
@@ -52,19 +52,27 @@ func (r *helmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile
 	_, ok := s.(map[string]interface{})
 	if !ok {
 		u.Object["spec"] = map[string]interface{}{}
-		r.Client.Update(context.TODO(), u)
+		err := r.Client.Update(context.TODO(), u)
+		if err != nil {
+			log.Printf("Failed to update %s %s/%s: %v", r.GVK.Kind, request.Namespace, request.Name, err)
+			return reconcile.Result{}, err
+		}
 		return reconcile.Result{Requeue: true}, nil
 	}
 
 	// Install the release
 	u, err = r.Installer.InstallRelease(u)
 	if err != nil {
-		log.Print(err)
+		log.Printf("Failed to install release for %s %s/%s: %v", r.GVK.Kind, request.Namespace, request.Name, err)
 		return reconcile.Result{}, err
 	}
 
 	// Update the CR with the updated status.
-	r.Client.Update(context.TODO(), u)
+	err = r.Client.Update(context.TODO(), u)
+	if err != nil {
+		log.Printf("Failed to update %s %s/%s: %v", r.GVK.Kind, request.Namespace, request.Name, err)
+		return reconcile.Result{}, err
+	}
 
 	return reconcile.Result{}, nil
 }

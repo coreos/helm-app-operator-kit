@@ -148,14 +148,12 @@ func NewFromEnv(tillerKubeClient *kube.Client, storageBackend *storage.Storage) 
 func NewFromWatches(tillerKubeClient *kube.Client, storageBackend *storage.Storage, path string) (map[schema.GroupVersionKind]Installer, error) {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
-		log.Printf("failed to get config file: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
 	watches := []watch{}
 	err = yaml.Unmarshal(b, &watches)
 	if err != nil {
-		log.Printf("failed to unmarshal config: %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
 	}
 
 	m := map[schema.GroupVersionKind]Installer{}
@@ -215,13 +213,13 @@ func (i installer) InstallRelease(u *unstructured.Unstructured) (*unstructured.U
 
 		err := processRequirements(installReq.Chart, installReq.Values)
 		if err != nil {
-			return u, fmt.Errorf("failed installing release for %s: failed processing requirements: %s", rel, err)
+			return u, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
 		}
 
 		log.Printf("installing release for %s", rel)
 		releaseResponse, err := tiller.InstallRelease(context.TODO(), installReq)
 		if err != nil {
-			return u, fmt.Errorf("failed installing release for %s: %s", rel, err)
+			return u, fmt.Errorf("tiller failed installing release for %s: %s", rel, err)
 		}
 		updatedRelease = releaseResponse.GetRelease()
 	} else {
@@ -233,7 +231,7 @@ func (i installer) InstallRelease(u *unstructured.Unstructured) (*unstructured.U
 
 		err := processRequirements(updateReq.Chart, updateReq.Values)
 		if err != nil {
-			return u, fmt.Errorf("failed updating release for %s: failed processing requirements: %s", rel, err)
+			return u, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
 		}
 
 		if reflect.DeepEqual(latestRelease.Chart, updateReq.Chart) && reflect.DeepEqual(latestRelease.Config, updateReq.Values) {
@@ -244,7 +242,7 @@ func (i installer) InstallRelease(u *unstructured.Unstructured) (*unstructured.U
 		log.Printf("updating release for %s", rel)
 		releaseResponse, err := tiller.UpdateRelease(context.TODO(), updateReq)
 		if err != nil {
-			return u, fmt.Errorf("failed updating release for %s: %s", rel, err)
+			return u, fmt.Errorf("tiller failed updating release for %s: %s", rel, err)
 		}
 		updatedRelease = releaseResponse.GetRelease()
 	}
@@ -269,7 +267,7 @@ func (i installer) UninstallRelease(u *unstructured.Unstructured) (*unstructured
 		Purge: true,
 	})
 	if err != nil {
-		return u, fmt.Errorf("failed uninstalling release for %s: %s", rel, err)
+		return u, fmt.Errorf("tiller failed uninstalling release for %s: %s", rel, err)
 	}
 	return u, nil
 }
