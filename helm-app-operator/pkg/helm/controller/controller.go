@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/installer"
 
@@ -53,16 +52,6 @@ func Add(mgr manager.Manager, options WatchOptions) {
 	if err := c.Watch(&source.Kind{Type: u}, &crthandler.EnqueueRequestForObject{}); err != nil {
 		log.Fatal(err)
 	}
-
-	// Emit events once per minute regardless of detected changes.
-	r := newReconcileLoop(time.Minute*1, options.GVK, mgr.GetClient())
-	r.Stop = options.StopChannel
-	cs := &source.Channel{Source: r.Source}
-	cs.InjectStopChannel(options.StopChannel)
-	if err := c.Watch(cs, &crthandler.EnqueueRequestForObject{}); err != nil {
-		log.Fatal(err)
-	}
-	r.Start()
 
 	log.Printf("Watching %s, %s", options.GVK, options.Namespace)
 }

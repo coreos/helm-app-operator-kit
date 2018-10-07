@@ -1,20 +1,24 @@
 package installer
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
-	"reflect"
 
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/api"
 
 	yaml "gopkg.in/yaml.v2"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+
 	"k8s.io/helm/pkg/chartutil"
 	"k8s.io/helm/pkg/engine"
 	"k8s.io/helm/pkg/kube"
@@ -26,6 +30,7 @@ import (
 	"k8s.io/helm/pkg/tiller"
 	"k8s.io/helm/pkg/tiller/environment"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
+	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
 )
 
 // Installer can install and uninstall Helm releases given a custom resource
@@ -173,65 +178,39 @@ func (i installer) InstallRelease(u *unstructured.Unstructured) (*unstructured.U
 	rel := releaseName(u)
 	cr, err := valuesFromResource(u)
 	if err != nil {
-		return u, err
+		return u, fmt.Errorf("failed parsing values for release %s: %s", rel, err)
 	}
+	config := &cpb.Config{Raw: string(cr)}
 
 	chart, err := chartutil.LoadDir(i.chartDir)
 	if err != nil {
-		return u, fmt.Errorf("failed loading chart %s: %s", i.chartDir, err)
+		return u, fmt.Errorf("failed loading chart %s for release %s: %s", i.chartDir, rel, err)
+	}
+
+	err = processRequirements(chart, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
 	}
 
 	err = i.syncReleaseStatus(u)
 	if err != nil {
-		return u, fmt.Errorf("failed syncing release status: %s", err)
+		return u, fmt.Errorf("failed syncing status for release %s: %s", rel, err)
 	}
 
 	tiller := i.tillerRendererForCR(u)
 
 	var updatedRelease *release.Release
-	latestRelease, err := i.storageBackend.Last(releaseName(u))
+	latestRelease, err := i.storageBackend.Last(rel)
 	if err != nil || latestRelease == nil {
-		installReq := &services.InstallReleaseRequest{
-			Namespace: u.GetNamespace(),
-			Name:      releaseName(u),
-			Chart:     chart,
-			Values:    &cpb.Config{Raw: string(cr)},
-		}
-
-		err := processRequirements(installReq.Chart, installReq.Values)
+		updatedRelease, err = i.installRelease(u, tiller, chart, config)
 		if err != nil {
-			return u, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
+			return u, fmt.Errorf("failed installing release %s: %s", rel, err)
 		}
-
-		log.Printf("installing release for %s", rel)
-		releaseResponse, err := tiller.InstallRelease(context.TODO(), installReq)
-		if err != nil {
-			return u, fmt.Errorf("tiller failed installing release for %s: %s", rel, err)
-		}
-		updatedRelease = releaseResponse.GetRelease()
 	} else {
-		updateReq := &services.UpdateReleaseRequest{
-			Name:   releaseName(u),
-			Chart:  chart,
-			Values: &cpb.Config{Raw: string(cr)},
-		}
-
-		err := processRequirements(updateReq.Chart, updateReq.Values)
+		updatedRelease, err = i.updateRelease(u, tiller, latestRelease, chart, config)
 		if err != nil {
-			return u, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
+			return u, fmt.Errorf("failed updating release %s: %s", rel, err)
 		}
-
-		if reflect.DeepEqual(latestRelease.Chart, updateReq.Chart) && reflect.DeepEqual(latestRelease.Config, updateReq.Values) {
-			log.Printf("skipping release update for %s: no change detected", rel)
-			return u, nil
-		}
-
-		log.Printf("updating release for %s", rel)
-		releaseResponse, err := tiller.UpdateRelease(context.TODO(), updateReq)
-		if err != nil {
-			return u, fmt.Errorf("tiller failed updating release for %s: %s", rel, err)
-		}
-		updatedRelease = releaseResponse.GetRelease()
 	}
 
 	status := api.StatusFor(u)
@@ -249,14 +228,96 @@ func (i installer) UninstallRelease(u *unstructured.Unstructured) (*unstructured
 	tiller := i.tillerRendererForCR(u)
 
 	log.Printf("uninstalling release for %s", rel)
+
 	_, err := tiller.UninstallRelease(context.TODO(), &services.UninstallReleaseRequest{
-		Name:  releaseName(u),
+		Name:  rel,
 		Purge: true,
 	})
 	if err != nil {
-		return u, fmt.Errorf("tiller failed uninstalling release for %s: %s", rel, err)
+		return u, fmt.Errorf("tiller failed uninstalling release %s: %s", rel, err)
 	}
 	return u, nil
+}
+
+func (i installer) installRelease(u *unstructured.Unstructured, tiller *tiller.ReleaseServer, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+	rel := releaseName(u)
+	installReq := &services.InstallReleaseRequest{
+		Namespace: u.GetNamespace(),
+		Name:      rel,
+		Chart:     chart,
+		Values:    config,
+	}
+
+	log.Printf("installing release for %s", rel)
+	releaseResponse, err := tiller.InstallRelease(context.TODO(), installReq)
+	if err != nil {
+		return nil, fmt.Errorf("tiller failed install: %s", err)
+	}
+	return releaseResponse.GetRelease(), nil
+}
+
+func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.ReleaseServer, latestRelease *release.Release, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+	rel := releaseName(u)
+	dryRunReq := &services.UpdateReleaseRequest{
+		Name:   rel,
+		Chart:  chart,
+		Values: config,
+		DryRun: true,
+	}
+
+	dryRunResponse, err := tiller.UpdateRelease(context.TODO(), dryRunReq)
+	if err != nil {
+		return nil, fmt.Errorf("tiller failed dry run update: %s", err)
+	}
+
+	latestManifest := latestRelease.GetManifest()
+	candidateManifest := dryRunResponse.GetRelease().GetManifest()
+
+	if latestManifest == candidateManifest {
+		// reconcile resources
+		log.Printf("reconciling resources for unchanged release %s", rel)
+		infos, err := i.tillerKubeClient.BuildUnstructured(u.GetNamespace(), bytes.NewBufferString(latestManifest))
+		if err != nil {
+			return nil, fmt.Errorf("failed building unstructured object: %s", err)
+		}
+
+		for _, info := range infos {
+			helper := resource.NewHelper(info.Client, info.Mapping)
+			_, err := helper.Create(info.Namespace, true, info.Object)
+			if err != nil {
+				if !apierrors.IsAlreadyExists(err) {
+					return nil, fmt.Errorf("failed creating object: %s", err)
+				}
+
+				patch, err := json.Marshal(info.Object)
+				if err != nil {
+					return nil, fmt.Errorf("failed marshaling patch: %s", err)
+				}
+				_, err = helper.Patch(info.Namespace, info.Name, types.MergePatchType, patch)
+				if err != nil {
+					return nil, fmt.Errorf("failed patching object: %s", err)
+				}
+			}
+		}
+
+		// release didn't change so return the latest release
+		return latestRelease, nil
+	}
+
+	log.Printf("updating release for %s", rel)
+
+	updateReq := &services.UpdateReleaseRequest{
+		Name:   rel,
+		Chart:  chart,
+		Values: config,
+	}
+
+	updateResponse, err := tiller.UpdateRelease(context.TODO(), updateReq)
+	if err != nil {
+		return nil, fmt.Errorf("tiller failed update: %s", err)
+	}
+
+	return updateResponse.GetRelease(), nil
 }
 
 func valuesFromResource(u *unstructured.Unstructured) ([]byte, error) {
