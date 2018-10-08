@@ -189,7 +189,7 @@ func (i installer) InstallRelease(u *unstructured.Unstructured) (*unstructured.U
 
 	err = processRequirements(chart, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
+		return u, fmt.Errorf("failed processing requirements for release %s: %s", rel, err)
 	}
 
 	err = i.syncReleaseStatus(u)
@@ -200,14 +200,14 @@ func (i installer) InstallRelease(u *unstructured.Unstructured) (*unstructured.U
 	tiller := i.tillerRendererForCR(u)
 
 	var updatedRelease *release.Release
-	latestRelease, err := i.storageBackend.Last(rel)
-	if err != nil || latestRelease == nil {
+	deployedRelease, err := i.storageBackend.Deployed(rel)
+	if err != nil || deployedRelease == nil {
 		updatedRelease, err = i.installRelease(u, tiller, chart, config)
 		if err != nil {
 			return u, fmt.Errorf("failed installing release %s: %s", rel, err)
 		}
 	} else {
-		updatedRelease, err = i.updateRelease(u, tiller, latestRelease, chart, config)
+		updatedRelease, err = i.updateRelease(u, tiller, deployedRelease, chart, config)
 		if err != nil {
 			return u, fmt.Errorf("failed updating release %s: %s", rel, err)
 		}
@@ -227,9 +227,15 @@ func (i installer) UninstallRelease(u *unstructured.Unstructured) (*unstructured
 	rel := releaseName(u)
 	tiller := i.tillerRendererForCR(u)
 
+	// If the release is not in the storage backend, it has already been uninstalled.
+	_, err := i.storageBackend.Last(rel)
+	if err != nil {
+		return u, nil
+	}
+
 	log.Printf("uninstalling release for %s", rel)
 
-	_, err := tiller.UninstallRelease(context.TODO(), &services.UninstallReleaseRequest{
+	_, err = tiller.UninstallRelease(context.TODO(), &services.UninstallReleaseRequest{
 		Name:  rel,
 		Purge: true,
 	})
@@ -256,7 +262,7 @@ func (i installer) installRelease(u *unstructured.Unstructured, tiller *tiller.R
 	return releaseResponse.GetRelease(), nil
 }
 
-func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.ReleaseServer, latestRelease *release.Release, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.ReleaseServer, deployedRelease *release.Release, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	rel := releaseName(u)
 	dryRunReq := &services.UpdateReleaseRequest{
 		Name:   rel,
@@ -270,13 +276,13 @@ func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.Re
 		return nil, fmt.Errorf("tiller failed dry run update: %s", err)
 	}
 
-	latestManifest := latestRelease.GetManifest()
+	deployedManifest := deployedRelease.GetManifest()
 	candidateManifest := dryRunResponse.GetRelease().GetManifest()
 
-	if latestManifest == candidateManifest {
+	if deployedManifest == candidateManifest {
 		// reconcile resources
 		log.Printf("reconciling resources for unchanged release %s", rel)
-		infos, err := i.tillerKubeClient.BuildUnstructured(u.GetNamespace(), bytes.NewBufferString(latestManifest))
+		infos, err := i.tillerKubeClient.BuildUnstructured(u.GetNamespace(), bytes.NewBufferString(deployedManifest))
 		if err != nil {
 			return nil, fmt.Errorf("failed building unstructured object: %s", err)
 		}
@@ -300,8 +306,8 @@ func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.Re
 			}
 		}
 
-		// release didn't change so return the latest release
-		return latestRelease, nil
+		// release didn't change so return the deployed release
+		return deployedRelease, nil
 	}
 
 	log.Printf("updating release for %s", rel)
