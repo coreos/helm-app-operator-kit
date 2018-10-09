@@ -1,9 +1,10 @@
-package helm
+package installer
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/helm/pkg/chartutil"
 	"k8s.io/helm/pkg/proto/hapi/chart"
@@ -56,7 +57,7 @@ spec:
 		"comment.yaml":   "# This is empty",
 	}
 
-	engine := NewOwnerRefEngine(&mockEngine{out: baseEngineOutput}, ownerRefs)
+	engine := newOwnerRefEngine(&mockEngine{out: baseEngineOutput}, ownerRefs)
 	out, err := engine.Render(&chart.Chart{}, map[string]interface{}{})
 	require.NoError(t, err)
 	require.EqualValues(t, expected, out)

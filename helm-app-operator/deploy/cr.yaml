@@ -1,8 +1,0 @@
-apiVersion: example.com/v1alpha1
-kind: ExampleApp
-metadata:
-  name: my-example-app
-  labels:
-    app: example-app
-spec:
-  size: 2
