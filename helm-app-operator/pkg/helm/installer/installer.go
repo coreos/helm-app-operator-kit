@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 
@@ -16,9 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-
 	"k8s.io/helm/pkg/chartutil"
 	"k8s.io/helm/pkg/engine"
 	"k8s.io/helm/pkg/kube"
@@ -44,28 +41,6 @@ type Installer interface {
 var _ Installer = installer{}
 
 const (
-
-	// HelmChartWatchesEnvVar is the environment variable for a YAML
-	// configuration file containing mappings of GVKs to helm charts.
-	// Use of this environment variable overrides the watch configuration
-	// provided by API_VERSION, KIND, and HELM_CHART, and allows users to
-	// configurable multiple watches, each with a different chart.
-	HelmChartWatchesEnvVar = "HELM_CHART_WATCHES"
-
-	// APIVersionEnvVar is the environment variable for the group and version
-	// to be watched using the format `<group>/<version>`
-	// (e.g. "example.com/v1alpha1").
-	APIVersionEnvVar = "API_VERSION"
-
-	// KindEnvVar is the environment variable for the kind to be watched. The
-	// value is typically singular and should be CamelCased (e.g. "MyApp").
-	KindEnvVar = "KIND"
-
-	// HelmChartEnvVar is the environment variable for the directory location
-	// of the helm chart to be installed for CRs that match the values for the
-	// API_VERSION and KIND environment variables.
-	HelmChartEnvVar = "HELM_CHART"
-
 	// OperatorNameEnvVar is the environment variable for the operator name,
 	// which is used in the release name for helm releases. If not set, a
 	// default value will be used.
@@ -89,87 +64,6 @@ type installer struct {
 	tillerKubeClient *kube.Client
 	storageBackend   *storage.Storage
 	chartDir         string
-}
-
-// watch holds data used to create a mapping of GVK to helm chart.
-// The mapping is used to compose a helm app operator.
-type watch struct {
-	Version string `yaml:"version"`
-	Group   string `yaml:"group"`
-	Kind    string `yaml:"kind"`
-	Chart   string `yaml:"chart"`
-}
-
-// NewFromEnv returns a map of installers based on configuration provided in
-// the environment.
-func NewFromEnv(tillerKubeClient *kube.Client, storageBackend *storage.Storage) (map[schema.GroupVersionKind]Installer, error) {
-	// If there is a watches file available, get Installers from it
-	if watchesFile, ok := getWatchesFile(); ok {
-		return NewFromWatches(tillerKubeClient, storageBackend, watchesFile)
-	}
-
-	// Otherwise, we'll fall back to the GVK environment variables
-	gv, err := schema.ParseGroupVersion(os.Getenv(APIVersionEnvVar))
-	if err != nil {
-		return nil, err
-	}
-	kind := os.Getenv(KindEnvVar)
-	s := schema.GroupVersionKind{
-		Group:   gv.Group,
-		Version: gv.Version,
-		Kind:    kind,
-	}
-
-	chartDir := os.Getenv(HelmChartEnvVar)
-	if chartDir == "" {
-		return nil, fmt.Errorf("chart must be defined for %v", s)
-	}
-
-	m := map[schema.GroupVersionKind]Installer{
-		s: New(tillerKubeClient, storageBackend, chartDir),
-	}
-
-	return m, nil
-}
-
-// NewFromWatches reads the config file at the provided path and returns a map
-// of installers for each GVK in the config.
-func NewFromWatches(tillerKubeClient *kube.Client, storageBackend *storage.Storage, path string) (map[schema.GroupVersionKind]Installer, error) {
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %v", err)
-	}
-	watches := []watch{}
-	err = yaml.Unmarshal(b, &watches)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
-	}
-
-	m := map[schema.GroupVersionKind]Installer{}
-	for _, w := range watches {
-		s := schema.GroupVersionKind{
-			Group:   w.Group,
-			Version: w.Version,
-			Kind:    w.Kind,
-		}
-		// Check if schema is a duplicate
-		if _, ok := m[s]; ok {
-			return nil, fmt.Errorf("duplicate GVK: %v", s.String())
-		}
-		if w.Chart == "" {
-			return nil, fmt.Errorf("chart must be defined for %v", s)
-		}
-		m[s] = New(tillerKubeClient, storageBackend, w.Chart)
-	}
-	if len(m) == 0 {
-		return nil, fmt.Errorf("no watches configured in watches file")
-	}
-	return m, nil
-}
-
-// New returns a new Helm installer capable of installing and uninstalling releases.
-func New(tillerKubeClient *kube.Client, storageBackend *storage.Storage, chartDir string) Installer {
-	return installer{tillerKubeClient, storageBackend, chartDir}
 }
 
 // InstallRelease accepts an unstructured object, installs a Helm release using Tiller,
@@ -264,10 +158,12 @@ func (i installer) installRelease(u *unstructured.Unstructured, tiller *tiller.R
 
 func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.ReleaseServer, deployedRelease *release.Release, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	rel := releaseName(u)
+	force := isForceUpdate(u)
 	dryRunReq := &services.UpdateReleaseRequest{
 		Name:   rel,
 		Chart:  chart,
 		Values: config,
+		Force:  force,
 		DryRun: true,
 	}
 
@@ -282,28 +178,8 @@ func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.Re
 	if deployedManifest == candidateManifest {
 		// reconcile resources
 		log.Printf("reconciling resources for unchanged release %s", rel)
-		infos, err := i.tillerKubeClient.BuildUnstructured(u.GetNamespace(), bytes.NewBufferString(deployedManifest))
-		if err != nil {
-			return nil, fmt.Errorf("failed building unstructured object: %s", err)
-		}
-
-		for _, info := range infos {
-			helper := resource.NewHelper(info.Client, info.Mapping)
-			_, err := helper.Create(info.Namespace, true, info.Object)
-			if err != nil {
-				if !apierrors.IsAlreadyExists(err) {
-					return nil, fmt.Errorf("failed creating object: %s", err)
-				}
-
-				patch, err := json.Marshal(info.Object)
-				if err != nil {
-					return nil, fmt.Errorf("failed marshaling patch: %s", err)
-				}
-				_, err = helper.Patch(info.Namespace, info.Name, types.MergePatchType, patch)
-				if err != nil {
-					return nil, fmt.Errorf("failed patching object: %s", err)
-				}
-			}
+		if err := i.reconcileResources(u, deployedManifest, force); err != nil {
+			return nil, fmt.Errorf("failed reconciling resources: %s", err)
 		}
 
 		// release didn't change so return the deployed release
@@ -316,6 +192,7 @@ func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.Re
 		Name:   rel,
 		Chart:  chart,
 		Values: config,
+		Force:  force,
 	}
 
 	updateResponse, err := tiller.UpdateRelease(context.TODO(), updateReq)
@@ -326,12 +203,72 @@ func (i installer) updateRelease(u *unstructured.Unstructured, tiller *tiller.Re
 	return updateResponse.GetRelease(), nil
 }
 
+func (i installer) reconcileResources(u *unstructured.Unstructured, expectedManifest string, force bool) error {
+	expectedInfos, err := i.tillerKubeClient.BuildUnstructured(u.GetNamespace(), bytes.NewBufferString(expectedManifest))
+	if err != nil {
+		return fmt.Errorf("failed building unstructured objects: %s", err)
+	}
+
+	return expectedInfos.Visit(func(expected *resource.Info, err error) error {
+		if err != nil {
+			return err
+		}
+		err = reconcileObject(expected, force)
+		if err != nil {
+			return fmt.Errorf("failed reconciling object: %s", err)
+		}
+		return nil
+	})
+}
+
+func reconcileObject(expected *resource.Info, force bool) error {
+	helper := resource.NewHelper(expected.Client, expected.Mapping)
+
+	// Attempt to create object
+	_, err := helper.Create(expected.Namespace, true, expected.Object)
+	if err == nil || !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	// If object already exists, patch it instead. We can't do a diff patch
+	// because Kubernetes sometimes automatically adds immutable fields
+	// (e.g. `clusterIp` to a Service). This can cause reconciliation
+	// failures even when the objects are otherwise completely unchanged.
+	patch, err := json.Marshal(expected.Object)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch for object: %s", err)
+	}
+
+	_, err = helper.Patch(expected.Namespace, expected.Name, types.MergePatchType, patch)
+	if err != nil {
+		if !force {
+			return fmt.Errorf("failed patching object: %s", err)
+		}
+
+		// If forcing update, delete and recreate object
+		_, err = helper.Delete(expected.Namespace, expected.Name)
+		if err != nil {
+			return fmt.Errorf("failed deleting object: %s", err)
+		}
+		_, err := helper.Create(expected.Namespace, true, expected.Object)
+		if err != nil {
+			return fmt.Errorf("failed creating object: %s", err)
+		}
+	}
+	return nil
+}
+
 func valuesFromResource(u *unstructured.Unstructured) ([]byte, error) {
 	return yaml.Marshal(u.Object["spec"])
 }
 
 func releaseName(u *unstructured.Unstructured) string {
 	return fmt.Sprintf("%s-%s", operatorName, u.GetName())
+}
+
+// Force updates are currently unsupported, so just return false for now.
+func isForceUpdate(u *unstructured.Unstructured) bool {
+	return false
 }
 
 // syncReleaseStatus ensures the object's release is present in the storage
@@ -397,18 +334,4 @@ func setOperatorName() {
 	if v != "" {
 		operatorName = v
 	}
-}
-
-func getWatchesFile() (string, bool) {
-	// If the watches env variable is set (even if it's an empty string), use it
-	// since the user explicitly set it.
-	if watchesFile, ok := os.LookupEnv(HelmChartWatchesEnvVar); ok {
-		return watchesFile, true
-	}
-
-	// Next, check if the default watches file is present. If so, use it.
-	if _, err := os.Stat(defaultHelmChartWatchesFile); err == nil {
-		return defaultHelmChartWatchesFile, true
-	}
-	return "", false
 }
