@@ -1,0 +1,5 @@
+---
+- group: helm.example.com
+  version: v1alpha1
+  kind: Memcached
+  chart: /chart

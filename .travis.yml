@@ -1,6 +1,22 @@
+language: go
+go_import_path: github.com/operator-framework/helm-app-operator-kit
 sudo: required
-language: bash
+
 services:
   - docker
-script:
-  - docker build -t quay.io/operatorframework/helm-app-operator-ci:$(git rev-parse --short HEAD) .
+
+jobs:
+  include:
+    - before_script: hack/ci/setup-openshift.sh
+      env: CLUSTER=openshift
+      script: test/test-helm.sh
+      name: Helm on OpenShift
+
+install:
+- curl -Lo dep https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64 && chmod +x dep && sudo mv dep /usr/local/bin/
+
+after_success:
+- echo "Build succeeded, operator was generated, memcached operator is running on $CLUSTER, and unit/integration tests passed"
+
+after_failure:
+- echo "Build failed, operator failed to generate, memcached operator is not running on $CLUSTER, and unit/integration tests failed"

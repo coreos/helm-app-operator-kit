@@ -1,0 +1,8 @@
+apiVersion: helm.example.com/v1alpha1
+kind: Memcached
+metadata:
+  name: my-test-app
+  labels:
+    app: memcached
+spec:
+  replicaCount: 1

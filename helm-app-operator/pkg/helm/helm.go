@@ -301,6 +301,11 @@ func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.R
 		Name:      releaseName(r),
 		Chart:     chart,
 		Values:    config,
+
+		// ReuseName needs to be true so that failed installations can
+		// be retried without failing with an error about the release
+		// already existing.
+		ReuseName: true,
 	}
 
 	releaseResponse, err := tiller.InstallRelease(context.TODO(), installReq)
