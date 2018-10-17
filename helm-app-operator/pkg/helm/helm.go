@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/martinlindhe/base36"
 	"github.com/pborman/uuid"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/sirupsen/logrus"
 
 	yaml "gopkg.in/yaml.v2"
@@ -265,7 +267,8 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 			return r, needsUpdate, fmt.Errorf("install error: %s", err)
 		}
 		needsUpdate = true
-		logrus.Infof("Installed release for %s release=%s", ResourceString(r), updatedRelease.GetName())
+		diffStr := diff("", updatedRelease.GetManifest())
+		logrus.Infof("Installed release for %s release=%s; diff:\n%s", ResourceString(r), updatedRelease.GetName(), diffStr)
 	} else {
 		candidateRelease, err := c.getCandidateRelease(tiller, releaseName, chart, config)
 		if err != nil {
@@ -286,7 +289,8 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 				return r, needsUpdate, fmt.Errorf("update error: %s", err)
 			}
 			needsUpdate = true
-			logrus.Infof("Updated release for %s release=%s", ResourceString(r), updatedRelease.GetName())
+			diffStr := diff(latestManifest, updatedRelease.GetManifest())
+			logrus.Infof("Updated release for %s release=%s; diff:\n%s", ResourceString(r), updatedRelease.GetName(), diffStr)
 		}
 	}
 
@@ -317,14 +321,15 @@ func (c installer) UninstallRelease(r *unstructured.Unstructured) (*unstructured
 	}
 
 	tiller := c.tillerRendererForCR(r)
-	_, err = tiller.UninstallRelease(context.TODO(), &services.UninstallReleaseRequest{
+	uninstallResponse, err := tiller.UninstallRelease(context.TODO(), &services.UninstallReleaseRequest{
 		Name:  releaseName,
 		Purge: true,
 	})
 	if err != nil {
 		return r, err
 	}
-	logrus.Infof("Uninstalled release for %s release=%s", ResourceString(r), releaseName)
+	diffStr := diff(uninstallResponse.GetRelease().GetManifest(), "")
+	logrus.Infof("Uninstalled release for %s release=%s; diff:\n%s", ResourceString(r), releaseName, diffStr)
 	return r, nil
 }
 
@@ -505,4 +510,39 @@ func shortenUID(uid types.UID) (shortUID string) {
 	}
 	shortUID = strings.ToLower(base36.EncodeBytes(uidBytes))
 	return
+}
+
+func diff(a, b string) string {
+	dmp := diffmatchpatch.New()
+	wSrc, wDst, warray := dmp.DiffLinesToRunes(a, b)
+	diffs := dmp.DiffMainRunes(wSrc, wDst, false)
+	diffs = dmp.DiffCharsToLines(diffs, warray)
+	var buff bytes.Buffer
+	for _, diff := range diffs {
+		text := diff.Text
+		switch diff.Type {
+		case diffmatchpatch.DiffInsert:
+			_, _ = buff.WriteString("\x1b[32m")
+			_, _ = buff.WriteString(prefixLines(text, "+"))
+			_, _ = buff.WriteString("\x1b[0m")
+		case diffmatchpatch.DiffDelete:
+			_, _ = buff.WriteString("\x1b[31m")
+			_, _ = buff.WriteString(prefixLines(text, "-"))
+			_, _ = buff.WriteString("\x1b[0m")
+		case diffmatchpatch.DiffEqual:
+			_, _ = buff.WriteString(prefixLines(text, " "))
+		}
+	}
+	return buff.String()
+}
+
+func prefixLines(s, prefix string) string {
+	var buf bytes.Buffer
+	lines := strings.Split(s, "\n")
+	ls := regexp.MustCompile("^")
+	for _, line := range lines[:len(lines)-1] {
+		buf.WriteString(ls.ReplaceAllString(line, prefix))
+		buf.WriteString("\n")
+	}
+	return buf.String()
 }

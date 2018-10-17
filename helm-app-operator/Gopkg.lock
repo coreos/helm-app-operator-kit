@@ -585,6 +585,14 @@
   revision = "05f3235734ad95d0016f6a23902f06461fcf567a"
 
 [[projects]]
+  digest = "1:d917313f309bda80d27274d53985bc65651f81a5b66b820749ac7f8ef061fd04"
+  name = "github.com/sergi/go-diff"
+  packages = ["diffmatchpatch"]
+  pruneopts = "NT"
+  revision = "1744e2970ca51c86172c8190fadad617561ed6e7"
+  version = "v1.0.0"
+
+[[projects]]
   digest = "1:2261fa5d64c3c09a759ff70caee6a1895336c9f5ad6bcaa80420fec9baf35b66"
   name = "github.com/sirupsen/logrus"
   packages = ["."]
@@ -1336,6 +1344,7 @@
     "github.com/operator-framework/operator-sdk/pkg/util/k8sutil",
     "github.com/operator-framework/operator-sdk/version",
     "github.com/pborman/uuid",
+    "github.com/sergi/go-diff/diffmatchpatch",
     "github.com/sirupsen/logrus",
     "github.com/stretchr/testify/assert",
     "github.com/stretchr/testify/require",
