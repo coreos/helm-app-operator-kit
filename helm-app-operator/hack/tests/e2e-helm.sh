@@ -47,6 +47,10 @@ docker build -t ${BASE_IMAGE} -f build/Dockerfile .
 pushd test
 pushd memcached-operator
 DIR1=$(pwd)
+
+mkdir chart && wget -qO- https://storage.googleapis.com/kubernetes-charts/memcached-2.3.1.tgz | tar -xzv --strip-components=1 -C ./chart
+trap_add 'rm -rf ${DIR1}/chart' EXIT
+
 docker build --build-arg BASE_IMAGE=${BASE_IMAGE} -t ${MEMCACHED_IMAGE} .
 sed "s|REPLACE_IMAGE|${MEMCACHED_IMAGE}|g" deploy/operator.yaml.tmpl > deploy/operator.yaml
 sed -i "s|Always|Never|g" deploy/operator.yaml
