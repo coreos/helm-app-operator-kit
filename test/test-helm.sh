@@ -1,6 +1,41 @@
-set -ev
+#!/usr/bin/env bash
+
+#===================================================================
+# FUNCTION trap_add ()
+#
+# Purpose:  prepends a command to a trap
+#
+# - 1st arg:  code to add
+# - remaining args:  names of traps to modify
+#
+# Example:  trap_add 'echo "in trap DEBUG"' DEBUG
+#
+# See: http://stackoverflow.com/questions/3338030/multiple-bash-traps-for-the-same-signal
+#===================================================================
+trap_add() {
+    trap_add_cmd=$1; shift || fatal "${FUNCNAME} usage error"
+    new_cmd=
+    for trap_add_name in "$@"; do
+        # Grab the currently defined trap commands for this trap
+        existing_cmd=`trap -p "${trap_add_name}" |  awk -F"'" '{print $2}'`
+
+        # Define default command
+        [ -z "${existing_cmd}" ] && existing_cmd="echo exiting @ `date`"
+
+        # Generate the new command
+        new_cmd="${trap_add_cmd};${existing_cmd}"
+
+        # Assign the test
+         trap   "${new_cmd}" "${trap_add_name}" || \
+                fatal "unable to add to trap ${trap_add_name}"
+    done
+}
+
+set -ex
 
 TAG=$(git rev-parse --short HEAD)
+BASE_IMAGE=quay.io/example/helm-app-operator:${TAG}
+MEMCACHED_IMAGE=quay.io/example/memcached-operator:${TAG}
 
 # switch to the "default" namespace if on openshift, to match the minikube test
 if which oc 2>/dev/null; then oc project default; fi
@@ -10,21 +45,28 @@ pushd helm-app-operator
 dep ensure
 ./build/build.sh
 go test ./...
-docker build -t quay.io/example/helm-app-operator:${TAG} -f build/Dockerfile .
+docker build -t ${BASE_IMAGE} -f build/Dockerfile .
 popd
 
 # build a memcached operator
 pushd test
 pushd memcached-operator
-docker build --build-arg TAG=${TAG} -t quay.io/example/memcached-operator:${TAG} .
-
-sed "s|REPLACE_IMAGE|quay.io/example/memcached-operator:${TAG}|g" deploy/operator.yaml.tmpl > deploy/operator.yaml
+DIR1=$(pwd)
+docker build --build-arg BASE_IMAGE=${BASE_IMAGE} -t ${MEMCACHED_IMAGE} .
+sed "s|REPLACE_IMAGE|${MEMCACHED_IMAGE}|g" deploy/operator.yaml.tmpl > deploy/operator.yaml
 sed -i "s|Always|Never|g" deploy/operator.yaml
+trap_add 'rm ${DIR1}/deploy/operator.yaml' EXIT
 
 # deploy the operator
 kubectl create -f deploy/rbac.yaml
+trap_add 'kubectl delete -f ${DIR1}/deploy/rbac.yaml' EXIT
+
 kubectl create -f deploy/crd.yaml
+trap_add 'kubectl delete -f ${DIR1}/deploy/crd.yaml' EXIT
+
 kubectl create -f deploy/operator.yaml
+trap_add 'kubectl delete -f ${DIR1}/deploy/operator.yaml' EXIT
+
 
 # wait for operator pod to run
 if ! timeout 1m kubectl rollout status deployment/memcached-operator;
@@ -36,6 +78,7 @@ fi
 
 # create CR
 kubectl create -f deploy/cr.yaml
+trap_add 'kubectl delete -f ${DIR1}/deploy/cr.yaml --wait=true;kubectl logs deployment/memcached-operator | grep "Uninstalled release for apiVersion=helm.example.com/v1alpha1 kind=Memcached name=default/my-test-app"' EXIT
 if ! timeout 20s bash -c -- 'until kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.info.status.code}" | grep 1; do sleep 1; done';
 then
     kubectl logs deployment/memcached-operator
@@ -51,16 +94,6 @@ then
     kubectl logs statefulset/${memcached_statefulset}
     exit 1
 fi
-
-# Test finalizer
-kubectl delete -f deploy/cr.yaml --wait=true
-kubectl logs deployment/memcached-operator | grep "Uninstalled release for apiVersion=helm.example.com/v1alpha1 kind=Memcached name=default/my-test-app"
-
-# Cleanup resources
-kubectl delete -f deploy/operator.yaml
-kubectl delete -f deploy/crd.yaml
-kubectl delete -f deploy/rbac.yaml
-rm deploy/operator.yaml
 
 popd
 popd

@@ -1,5 +1,5 @@
-ARG TAG
-FROM quay.io/example/helm-app-operator:$TAG
+ARG BASE_IMAGE
+FROM $BASE_IMAGE
 
 ENV HELM_CHART_WATCHES /watches.yaml
 ADD ./watches.yaml /watches.yaml
