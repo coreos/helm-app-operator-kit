@@ -40,13 +40,8 @@ MEMCACHED_IMAGE=quay.io/example/memcached-operator:${TAG}
 # switch to the "default" namespace if on openshift, to match the minikube test
 if which oc 2>/dev/null; then oc project default; fi
 
-# build operator binary and base image
-pushd helm-app-operator
-dep ensure
-./build/build.sh
-go test ./...
+# build operator base image
 docker build -t ${BASE_IMAGE} -f build/Dockerfile .
-popd
 
 # build a memcached operator
 pushd test
@@ -78,7 +73,7 @@ fi
 
 # create CR
 kubectl create -f deploy/cr.yaml
-trap_add 'kubectl delete -f ${DIR1}/deploy/cr.yaml --wait=true;kubectl logs deployment/memcached-operator | grep "Uninstalled release for apiVersion=helm.example.com/v1alpha1 kind=Memcached name=default/my-test-app"' EXIT
+trap_add 'kubectl delete --ignore-not-found -f ${DIR1}/deploy/cr.yaml' EXIT
 if ! timeout 20s bash -c -- 'until kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.info.status.code}" | grep 1; do sleep 1; done';
 then
     kubectl logs deployment/memcached-operator
@@ -94,6 +89,9 @@ then
     kubectl logs statefulset/${memcached_statefulset}
     exit 1
 fi
+
+kubectl delete -f deploy/cr.yaml --wait=true
+kubectl logs deployment/memcached-operator | grep "Uninstalled release for apiVersion=helm.example.com/v1alpha1 kind=Memcached name=default/my-test-app"
 
 popd
 popd
