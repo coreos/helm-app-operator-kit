@@ -69,8 +69,10 @@ const (
 	// API_VERSION and KIND environment variables.
 	HelmChartEnvVar = "HELM_CHART"
 
-	operatorName                = "helm-app-operator"
 	defaultHelmChartWatchesFile = "/opt/helm/watches.yaml"
+
+	annotationReleaseName          = "helm.operator-sdk/release-name"
+	annotationUseNameAsReleaseName = "helm.operator-sdk/use-name-as-release-name"
 )
 
 // Installer can install and uninstall Helm releases given a custom resource
@@ -235,8 +237,10 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 		return r, needsUpdate, fmt.Errorf("failed to sync release status: %s", err)
 	}
 
+	releaseName := getReleaseName(r)
+
 	// Get release history for this release name
-	releases, err := c.storageBackend.History(releaseName(r))
+	releases, err := c.storageBackend.History(releaseName)
 	if err != nil && !notFoundErr(err) {
 		return r, needsUpdate, fmt.Errorf("failed to retrieve release history: %s", err)
 	}
@@ -254,16 +258,16 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 	}
 
 	var updatedRelease *release.Release
-	latestRelease, err := c.storageBackend.Deployed(releaseName(r))
+	latestRelease, err := c.storageBackend.Deployed(releaseName)
 	if err != nil || latestRelease == nil {
-		updatedRelease, err = c.installRelease(r, tiller, chart, config)
+		updatedRelease, err = c.installRelease(r, tiller, releaseName, chart, config)
 		if err != nil {
 			return r, needsUpdate, fmt.Errorf("install error: %s", err)
 		}
 		needsUpdate = true
 		logrus.Infof("Installed release for %s release=%s", ResourceString(r), updatedRelease.GetName())
 	} else {
-		candidateRelease, err := c.getCandidateRelease(r, tiller, chart, config)
+		candidateRelease, err := c.getCandidateRelease(r, tiller, releaseName, chart, config)
 		if err != nil {
 			return r, needsUpdate, fmt.Errorf("failed to generate candidate release: %s", err)
 		}
@@ -277,7 +281,7 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 			updatedRelease = latestRelease
 			logrus.Infof("Reconciled release for %s release=%s", ResourceString(r), updatedRelease.GetName())
 		} else {
-			updatedRelease, err = c.updateRelease(r, tiller, chart, config)
+			updatedRelease, err = c.updateRelease(r, tiller, releaseName, chart, config)
 			if err != nil {
 				return r, needsUpdate, fmt.Errorf("update error: %s", err)
 			}
@@ -298,8 +302,10 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 // UninstallRelease accepts a custom resource, uninstalls the existing Helm release
 // using Tiller, and returns the custom resource with updated `status`.
 func (c installer) UninstallRelease(r *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	releaseName := getReleaseName(r)
+
 	// Get history of this release
-	h, err := c.storageBackend.History(releaseName(r))
+	h, err := c.storageBackend.History(releaseName)
 	if err != nil {
 		return r, fmt.Errorf("failed to get release history: %s", err)
 	}
@@ -312,13 +318,13 @@ func (c installer) UninstallRelease(r *unstructured.Unstructured) (*unstructured
 
 	tiller := c.tillerRendererForCR(r)
 	_, err = tiller.UninstallRelease(context.TODO(), &services.UninstallReleaseRequest{
-		Name:  releaseName(r),
+		Name:  releaseName,
 		Purge: true,
 	})
 	if err != nil {
 		return r, err
 	}
-	logrus.Infof("Uninstalled release for %s release=%s", ResourceString(r), releaseName(r))
+	logrus.Infof("Uninstalled release for %s release=%s", ResourceString(r), releaseName)
 	return r, nil
 }
 
@@ -327,10 +333,10 @@ func ResourceString(r *unstructured.Unstructured) string {
 	return fmt.Sprintf("apiVersion=%s kind=%s name=%s/%s", r.GetAPIVersion(), r.GetKind(), r.GetNamespace(), r.GetName())
 }
 
-func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	installReq := &services.InstallReleaseRequest{
 		Namespace: r.GetNamespace(),
-		Name:      releaseName(r),
+		Name:      name,
 		Chart:     chart,
 		Values:    config,
 	}
@@ -342,9 +348,9 @@ func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.R
 	return releaseResponse.GetRelease(), nil
 }
 
-func (c installer) updateRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (c installer) updateRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	updateReq := &services.UpdateReleaseRequest{
-		Name:   releaseName(r),
+		Name:   name,
 		Chart:  chart,
 		Values: config,
 	}
@@ -387,9 +393,9 @@ func (c installer) reconcileRelease(r *unstructured.Unstructured, expectedManife
 	})
 }
 
-func (c installer) getCandidateRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (c installer) getCandidateRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	dryRunReq := &services.UpdateReleaseRequest{
-		Name:   releaseName(r),
+		Name:   name,
 		Chart:  chart,
 		Values: config,
 		DryRun: true,
@@ -442,8 +448,21 @@ func (c installer) tillerRendererForCR(r *unstructured.Unstructured) *tiller.Rel
 	return tiller.NewReleaseServer(env, internalClientSet, false)
 }
 
-func releaseName(r *unstructured.Unstructured) string {
-	return fmt.Sprintf("%s-%s", operatorName, r.GetName())
+func getReleaseName(r *unstructured.Unstructured) string {
+	status := v1alpha1.StatusFor(r)
+	if status.Release != nil {
+		return status.Release.GetName()
+	}
+	if v, ok := r.GetAnnotations()[annotationReleaseName]; ok {
+		return v
+	}
+	if v, ok := r.GetAnnotations()[annotationUseNameAsReleaseName]; ok && v == "true" {
+		return r.GetName()
+	}
+
+	// An empty release name will be populated automatically by tiller
+	// during installation
+	return ""
 }
 
 func notFoundErr(err error) bool {
