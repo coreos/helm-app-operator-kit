@@ -260,12 +260,18 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 	var updatedRelease *release.Release
 	latestRelease, err := c.storageBackend.Deployed(releaseName)
 	if err != nil || latestRelease == nil {
+		// If there's no deployed release, attempt a tiller install.
 		updatedRelease, err = c.installRelease(r, tiller, releaseName, chart, config)
 		if err != nil {
 			return r, needsUpdate, fmt.Errorf("install error: %s", err)
 		}
 		needsUpdate = true
 		logrus.Infof("Installed release for %s release=%s", ResourceString(r), updatedRelease.GetName())
+
+	} else if status.Release == nil {
+		// If the object has no release status, it does not own the release,
+		// so return an error.
+		return r, needsUpdate, fmt.Errorf("install error: release \"%s\" already exists", releaseName)
 	} else {
 		candidateRelease, err := c.getCandidateRelease(r, tiller, releaseName, chart, config)
 		if err != nil {
@@ -302,6 +308,13 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 // UninstallRelease accepts a custom resource, uninstalls the existing Helm release
 // using Tiller, and returns the custom resource with updated `status`.
 func (c installer) UninstallRelease(r *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	// If the object has no release status, it does not own the release,
+	// so there's nothing to do.
+	status := v1alpha1.StatusFor(r)
+	if status.Release == nil {
+		return r, nil
+	}
+
 	releaseName := getReleaseName(r)
 
 	// Get history of this release
@@ -343,6 +356,15 @@ func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.R
 
 	releaseResponse, err := tiller.InstallRelease(context.TODO(), installReq)
 	if err != nil {
+		// Workaround for helm/helm#3338
+		uninstallReq := &services.UninstallReleaseRequest{
+			Name:  releaseResponse.GetRelease().GetName(),
+			Purge: true,
+		}
+		_, uninstallErr := tiller.UninstallRelease(context.TODO(), uninstallReq)
+		if uninstallErr != nil {
+			return nil, fmt.Errorf("failed to roll back failed installation: %s: %s", uninstallErr, err)
+		}
 		return nil, err
 	}
 	return releaseResponse.GetRelease(), nil
@@ -357,6 +379,15 @@ func (c installer) updateRelease(r *unstructured.Unstructured, tiller *tiller.Re
 
 	releaseResponse, err := tiller.UpdateRelease(context.TODO(), updateReq)
 	if err != nil {
+		// Workaround for helm/helm#3338
+		rollbackReq := &services.RollbackReleaseRequest{
+			Name:  name,
+			Force: true,
+		}
+		_, rollbackErr := tiller.RollbackRelease(context.TODO(), rollbackReq)
+		if rollbackErr != nil {
+			return nil, fmt.Errorf("failed to roll back failed update: %s: %s", rollbackErr, err)
+		}
 		return nil, err
 	}
 	return releaseResponse.GetRelease(), nil
