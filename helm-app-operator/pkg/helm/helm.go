@@ -261,7 +261,7 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 	latestRelease, err := c.storageBackend.Deployed(releaseName)
 	if err != nil || latestRelease == nil {
 		// If there's no deployed release, attempt a tiller install.
-		updatedRelease, err = c.installRelease(r, tiller, releaseName, chart, config)
+		updatedRelease, err = c.installRelease(tiller, r.GetNamespace(), releaseName, chart, config)
 		if err != nil {
 			return r, needsUpdate, fmt.Errorf("install error: %s", err)
 		}
@@ -273,21 +273,21 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 		// so return an error.
 		return r, needsUpdate, fmt.Errorf("install error: release \"%s\" already exists", releaseName)
 	} else {
-		candidateRelease, err := c.getCandidateRelease(r, tiller, releaseName, chart, config)
+		candidateRelease, err := c.getCandidateRelease(tiller, releaseName, chart, config)
 		if err != nil {
 			return r, needsUpdate, fmt.Errorf("failed to generate candidate release: %s", err)
 		}
 
 		latestManifest := latestRelease.GetManifest()
 		if latestManifest == candidateRelease.GetManifest() {
-			err = c.reconcileRelease(r, latestManifest)
+			err = c.reconcileRelease(r.GetNamespace(), latestManifest)
 			if err != nil {
 				return r, needsUpdate, fmt.Errorf("reconcile error: %s", err)
 			}
 			updatedRelease = latestRelease
 			logrus.Infof("Reconciled release for %s release=%s", ResourceString(r), updatedRelease.GetName())
 		} else {
-			updatedRelease, err = c.updateRelease(r, tiller, releaseName, chart, config)
+			updatedRelease, err = c.updateRelease(tiller, releaseName, chart, config)
 			if err != nil {
 				return r, needsUpdate, fmt.Errorf("update error: %s", err)
 			}
@@ -346,9 +346,9 @@ func ResourceString(r *unstructured.Unstructured) string {
 	return fmt.Sprintf("apiVersion=%s kind=%s name=%s/%s", r.GetAPIVersion(), r.GetKind(), r.GetNamespace(), r.GetName())
 }
 
-func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (c installer) installRelease(tiller *tiller.ReleaseServer, namespace, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	installReq := &services.InstallReleaseRequest{
-		Namespace: r.GetNamespace(),
+		Namespace: namespace,
 		Name:      name,
 		Chart:     chart,
 		Values:    config,
@@ -370,7 +370,7 @@ func (c installer) installRelease(r *unstructured.Unstructured, tiller *tiller.R
 	return releaseResponse.GetRelease(), nil
 }
 
-func (c installer) updateRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (c installer) updateRelease(tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	updateReq := &services.UpdateReleaseRequest{
 		Name:   name,
 		Chart:  chart,
@@ -393,8 +393,8 @@ func (c installer) updateRelease(r *unstructured.Unstructured, tiller *tiller.Re
 	return releaseResponse.GetRelease(), nil
 }
 
-func (c installer) reconcileRelease(r *unstructured.Unstructured, expectedManifest string) error {
-	expectedInfos, err := c.tillerKubeClient.BuildUnstructured(r.GetNamespace(), bytes.NewBufferString(expectedManifest))
+func (c installer) reconcileRelease(namespace string, expectedManifest string) error {
+	expectedInfos, err := c.tillerKubeClient.BuildUnstructured(namespace, bytes.NewBufferString(expectedManifest))
 	if err != nil {
 		return err
 	}
@@ -424,7 +424,7 @@ func (c installer) reconcileRelease(r *unstructured.Unstructured, expectedManife
 	})
 }
 
-func (c installer) getCandidateRelease(r *unstructured.Unstructured, tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
+func (c installer) getCandidateRelease(tiller *tiller.ReleaseServer, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
 	dryRunReq := &services.UpdateReleaseRequest{
 		Name:   name,
 		Chart:  chart,
