@@ -46,6 +46,7 @@ metadata:
     uid: "123"
 spec:
   Name: Nemo
+---
 `
 	expected := map[string]string{"template.yaml": expectedOut, "template2.yaml": expectedOut}
 
@@ -94,5 +95,8 @@ func TestMultiDocumentFile(t *testing.T){
 	}
 
 	engine := NewOwnerRefEngine(&mockEngine{out: baseEngineOutput}, ownerRefs)
-	engine.Render(&chart.Chart{}, map[string]interface{}{})
+	out, err := engine.Render(&chart.Chart{}, map[string]interface{}{})
+
+	t.Log(out)
+	t.Log(err)
 }
