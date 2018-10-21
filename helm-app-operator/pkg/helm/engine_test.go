@@ -61,3 +61,38 @@ spec:
 	require.NoError(t, err)
 	require.EqualValues(t, expected, out)
 }
+
+
+func TestMultiDocumentFile(t *testing.T){
+	ownerRefs := []metav1.OwnerReference{
+		{
+			APIVersion: "v1",
+			Kind:       "Test",
+			Name:       "test",
+			UID:        "123",
+		},
+	}
+
+	inputDocument := `
+			kind: ConfigMap
+			apiVersion: v1
+			metadata:
+			  name: eighth
+			data:
+			  name: value
+			---
+			apiVersion: v1
+			kind: Pod
+			metadata:
+			  name: example-test
+			  annotations:
+				"helm.sh/hook": test-success
+	`
+
+	baseEngineOutput := map[string]string{
+		"template.yaml":  inputDocument,
+	}
+
+	engine := NewOwnerRefEngine(&mockEngine{out: baseEngineOutput}, ownerRefs)
+	engine.Render(&chart.Chart{}, map[string]interface{}{})
+}
