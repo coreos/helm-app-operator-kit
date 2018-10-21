@@ -62,8 +62,7 @@ spec:
 	require.EqualValues(t, expected, out)
 }
 
-
-func TestMultiDocumentFile(t *testing.T){
+func TestMultiDocumentFile(t *testing.T) {
 	ownerRefs := []metav1.OwnerReference{
 		{
 			APIVersion: "v1",
@@ -90,7 +89,7 @@ func TestMultiDocumentFile(t *testing.T){
 	`
 
 	baseEngineOutput := map[string]string{
-		"template.yaml":  inputDocument,
+		"template.yaml": inputDocument,
 	}
 
 	engine := NewOwnerRefEngine(&mockEngine{out: baseEngineOutput}, ownerRefs)
