@@ -72,7 +72,7 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		unstructured := &unstructured.Unstructured{Object: unst}
 		unstructured.SetOwnerReferences(o.refs)
 
-		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object))
+		_,err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object))
 
 		// Append the document separator
 		outBuf.WriteString("---\n")
