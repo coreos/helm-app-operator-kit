@@ -88,7 +88,6 @@ metadata:
     "helm.sh/hook": test-success
 `
 
-
 	expectedOut := `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -115,7 +114,6 @@ metadata:
 ---
 `
 
-
 	expected := map[string]string{"template.yaml": expectedOut}
 
 	baseEngineOutput := map[string]string{
@@ -126,5 +124,5 @@ metadata:
 	out, err := engine.Render(&chart.Chart{}, map[string]interface{}{})
 
 	require.NoError(t, err)
-	require.Equal(t,expected,out)
+	require.Equal(t, expected, out)
 }
