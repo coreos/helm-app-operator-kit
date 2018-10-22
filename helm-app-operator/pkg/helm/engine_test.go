@@ -84,8 +84,6 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: example-test
-  annotations:
-    "helm.sh/hook": test-success
 `
 
 	expectedOut := `apiVersion: v1
@@ -103,8 +101,6 @@ metadata:
 apiVersion: v1
 kind: Pod
 metadata:
-  annotations:
-    helm.sh/hook: test-success
   name: example-test
   ownerReferences:
   - apiVersion: v1

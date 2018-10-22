@@ -54,6 +54,8 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 // addOwnerRefs adds the configured ownerRefs to a single rendered file
 // Adds the ownerrefs to all the documents in a YAML file
 func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
+	const documentSeparator = "---\n"
+
 	var outBuf bytes.Buffer
 	manifests := releaseutil.SplitManifests(fileContents)
 
@@ -77,15 +79,9 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		unstructured.SetOwnerReferences(o.refs)
 
 		// Write the document with owner ref to the buffer
-		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object))
+		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object) + documentSeparator)
 		if err != nil {
 			return "", fmt.Errorf("error writing the document to buffer : %v", err)
-		}
-
-		// Append the document separator
-		_, err = outBuf.WriteString("---\n")
-		if err != nil {
-			return "", fmt.Errorf("error writing the document separator to buffer : %v", err)
 		}
 	}
 
