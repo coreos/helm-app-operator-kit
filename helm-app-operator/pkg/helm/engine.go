@@ -80,7 +80,7 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		// Also add document start marker
 		_, err = outBuf.WriteString(documentSeparator + chartutil.ToYaml(unstructured.Object))
 		if err != nil {
-			return "", fmt.Errorf("error writing the document to buffer : %v", err)
+			return "", fmt.Errorf("error writing the document to buffer: %v", err)
 		}
 	}
 
