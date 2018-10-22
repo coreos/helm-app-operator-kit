@@ -77,7 +77,8 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		unstructured.SetOwnerReferences(o.refs)
 
 		// Write the document with owner ref to the buffer
-		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object) + documentSeparator)
+		// Also add document start marker
+		_, err = outBuf.WriteString(documentSeparator + chartutil.ToYaml(unstructured.Object))
 		if err != nil {
 			return "", fmt.Errorf("error writing the document to buffer : %v", err)
 		}

@@ -35,7 +35,8 @@ spec:
   Name: Nemo
 `
 
-	expectedOut := `apiVersion: stable.nicolerenee.io/v1
+	expectedOut := `---
+apiVersion: stable.nicolerenee.io/v1
 kind: Character
 metadata:
   name: nemo
@@ -46,7 +47,6 @@ metadata:
     uid: "123"
 spec:
   Name: Nemo
----
 `
 	expected := map[string]string{"template.yaml": expectedOut, "template2.yaml": expectedOut}
 
@@ -86,7 +86,8 @@ metadata:
   name: example-test
 `
 
-	expectedOut := `apiVersion: v1
+	expectedOut := `---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   data:
@@ -107,7 +108,6 @@ metadata:
     kind: Test
     name: test
     uid: "123"
----
 `
 
 	expected := map[string]string{"template.yaml": expectedOut}
