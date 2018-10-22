@@ -55,11 +55,9 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 // Adds the ownerrefs to all the documents in a YAML file
 func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 	const documentSeparator = "---\n"
-
 	var outBuf bytes.Buffer
-	manifests := releaseutil.SplitManifests(fileContents)
 
-	for _, manifest := range manifests {
+	for _, manifest := range releaseutil.SplitManifests(fileContents) {
 		manifestMap := chartutil.FromYaml(manifest)
 		if errors, ok := manifestMap["Error"]; ok {
 			return "", fmt.Errorf("error parsing rendered template to add ownerrefs: %v", errors)
