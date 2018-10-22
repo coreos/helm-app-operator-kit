@@ -59,7 +59,6 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 
 	for _, manifest := range manifests {
 		manifestMap := chartutil.FromYaml(manifest)
-
 		if errors, ok := manifestMap["Error"]; ok {
 			return "", fmt.Errorf("error parsing rendered template to add ownerrefs: %v", errors)
 		}
@@ -77,13 +76,16 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		unstructured := &unstructured.Unstructured{Object: unst}
 		unstructured.SetOwnerReferences(o.refs)
 
+		// Write the document with owner ref to the buffer
 		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object))
+		if err != nil {
+			return "", fmt.Errorf("error writing the document to buffer : %v", err)
+		}
 
 		// Append the document separator
-		outBuf.WriteString("---\n")
-
+		_, err = outBuf.WriteString("---\n")
 		if err != nil {
-			return "", fmt.Errorf("error parsing the object to yaml: %v", err)
+			return "", fmt.Errorf("error writing the document separator to buffer : %v", err)
 		}
 	}
 
