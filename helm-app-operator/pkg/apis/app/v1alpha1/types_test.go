@@ -35,6 +35,16 @@ func TestStatusForEmpty(t *testing.T) {
 
 func TestStatusForFilled(t *testing.T) {
 	expectedResource := newTestResource()
+	expectedResource.Object["status"] = newTestStatus()
+	status := StatusFor(expectedResource)
+
+	assert.EqualValues(t, newTestStatus().Phase, status.Phase)
+	assert.EqualValues(t, newTestStatus().Reason, status.Reason)
+	assert.EqualValues(t, newTestStatus().Message, status.Message)
+}
+
+func TestStatusForFilledRaw(t *testing.T) {
+	expectedResource := newTestResource()
 	expectedResource.Object["status"] = newTestStatusRaw()
 	status := StatusFor(expectedResource)
 

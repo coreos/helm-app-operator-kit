@@ -6,5 +6,5 @@ RUN ./gofmt.sh
 RUN curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 RUN dep ensure -v
 RUN go test ./...
-RUN CGO_ENABLED=0 GOOS=linux go build -o bin/operator cmd/helm-app-operator/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o bin/operator cmd/manager/main.go
 RUN chmod +x bin/operator

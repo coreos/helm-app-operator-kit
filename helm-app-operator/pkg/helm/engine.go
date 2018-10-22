@@ -37,13 +37,13 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 		if !strings.HasSuffix(fileName, ".yaml") {
 			continue
 		}
-		logrus.Infof("adding ownerrefs to file: %s", fileName)
+		logrus.Debugf("adding ownerrefs to file: %s", fileName)
 		withOwner, err := o.addOwnerRefs(renderedFile)
 		if err != nil {
 			return nil, err
 		}
 		if withOwner == "" {
-			logrus.Infof("skipping empty template: %s", fileName)
+			logrus.Debugf("skipping empty template: %s", fileName)
 			continue
 		}
 		ownedRenderedFiles[fileName] = withOwner

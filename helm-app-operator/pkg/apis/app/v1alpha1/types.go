@@ -87,7 +87,7 @@ func (s *HelmAppStatus) SetRelease(release *release.Release) *HelmAppStatus {
 // StatusFor safely returns a typed status block from a custom resource.
 func StatusFor(cr *unstructured.Unstructured) *HelmAppStatus {
 	switch cr.Object["status"].(type) {
-	case HelmAppStatus:
+	case *HelmAppStatus:
 		return cr.Object["status"].(*HelmAppStatus)
 	case map[string]interface{}:
 		var status *HelmAppStatus
