@@ -7,7 +7,6 @@ import (
 	"bytes"
 
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -56,7 +55,6 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 // Adds the ownerrefs to all the documents in a YAML file
 func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 	var outBuf bytes.Buffer
-	encoder := yaml.NewEncoder(&outBuf)
 	manifests := releaseutil.SplitManifests(fileContents)
 
 	for _, manifest := range manifests {
@@ -64,6 +62,11 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 
 		if errors, ok := manifestMap["Error"]; ok {
 			return "", fmt.Errorf("error parsing rendered template to add ownerrefs: %v", errors)
+		}
+
+		// Check if the document is empty
+		if len(manifestMap) == 0 {
+			continue
 		}
 
 		unst, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&manifestMap)
@@ -74,7 +77,11 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		unstructured := &unstructured.Unstructured{Object: unst}
 		unstructured.SetOwnerReferences(o.refs)
 
-		err = encoder.Encode(unstructured.Object)
+		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object))
+
+		// Append the document separator
+		outBuf.WriteString("---\n")
+
 		if err != nil {
 			return "", fmt.Errorf("error parsing the object to yaml: %v", err)
 		}
