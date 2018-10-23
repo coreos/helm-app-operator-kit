@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memcached-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: memcached-operator
+  template:
+    metadata:
+      labels:
+        name: memcached-operator
+    spec:
+      containers:
+        - name: memcached-operator
+          image: REPLACE_IMAGE
+          imagePullPolicy: Never
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace

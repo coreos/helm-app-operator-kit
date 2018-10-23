@@ -1357,7 +1357,6 @@
     "k8s.io/helm/pkg/proto/hapi/services",
     "k8s.io/helm/pkg/storage",
     "k8s.io/helm/pkg/storage/driver",
-    "k8s.io/helm/pkg/storage/errors",
     "k8s.io/helm/pkg/tiller",
     "k8s.io/helm/pkg/tiller/environment",
     "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset",
