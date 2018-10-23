@@ -1,3 +1,17 @@
+// Copyright 2018 The Operator-SDK Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package helm
 
 import (
@@ -37,13 +51,13 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 		if !strings.HasSuffix(fileName, ".yaml") {
 			continue
 		}
-		logrus.Infof("adding ownerrefs to file: %s", fileName)
+		logrus.Debugf("adding ownerrefs to file: %s", fileName)
 		withOwner, err := o.addOwnerRefs(renderedFile)
 		if err != nil {
 			return nil, err
 		}
 		if withOwner == "" {
-			logrus.Infof("skipping empty template: %s", fileName)
+			logrus.Debugf("skipping empty template: %s", fileName)
 			continue
 		}
 		ownedRenderedFiles[fileName] = withOwner
@@ -54,12 +68,11 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 // addOwnerRefs adds the configured ownerRefs to a single rendered file
 // Adds the ownerrefs to all the documents in a YAML file
 func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
+	const documentSeparator = "---\n"
 	var outBuf bytes.Buffer
-	manifests := releaseutil.SplitManifests(fileContents)
 
-	for _, manifest := range manifests {
+	for _, manifest := range releaseutil.SplitManifests(fileContents) {
 		manifestMap := chartutil.FromYaml(manifest)
-
 		if errors, ok := manifestMap["Error"]; ok {
 			return "", fmt.Errorf("error parsing rendered template to add ownerrefs: %v", errors)
 		}
@@ -77,13 +90,11 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 		unstructured := &unstructured.Unstructured{Object: unst}
 		unstructured.SetOwnerReferences(o.refs)
 
-		_, err = outBuf.WriteString(chartutil.ToYaml(unstructured.Object))
-
-		// Append the document separator
-		outBuf.WriteString("---\n")
-
+		// Write the document with owner ref to the buffer
+		// Also add document start marker
+		_, err = outBuf.WriteString(documentSeparator + chartutil.ToYaml(unstructured.Object))
 		if err != nil {
-			return "", fmt.Errorf("error parsing the object to yaml: %v", err)
+			return "", fmt.Errorf("error writing the document to buffer: %v", err)
 		}
 	}
 

@@ -1,3 +1,17 @@
+// Copyright 2018 The Operator-SDK Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package helm
 
 import (
@@ -35,7 +49,8 @@ spec:
   Name: Nemo
 `
 
-	expectedOut := `apiVersion: stable.nicolerenee.io/v1
+	expectedOut := `---
+apiVersion: stable.nicolerenee.io/v1
 kind: Character
 metadata:
   name: nemo
@@ -46,7 +61,6 @@ metadata:
     uid: "123"
 spec:
   Name: Nemo
----
 `
 	expected := map[string]string{"template.yaml": expectedOut, "template2.yaml": expectedOut}
 
@@ -84,11 +98,10 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: example-test
-  annotations:
-    "helm.sh/hook": test-success
 `
 
-	expectedOut := `apiVersion: v1
+	expectedOut := `---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   data:
@@ -103,15 +116,12 @@ metadata:
 apiVersion: v1
 kind: Pod
 metadata:
-  annotations:
-    helm.sh/hook: test-success
   name: example-test
   ownerReferences:
   - apiVersion: v1
     kind: Test
     name: test
     uid: "123"
----
 `
 
 	expected := map[string]string{"template.yaml": expectedOut}

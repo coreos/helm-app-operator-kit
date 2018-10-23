@@ -14,18 +14,32 @@ required = [
 
 [[override]]
   name = "k8s.io/code-generator"
-  # revision for tag "kubernetes-1.9.3"
-  revision = "91d3f6a57905178524105a085085901bb73bd3dc"
+  # revision for tag "kubernetes-1.11.2"
+  revision = "6702109cc68eb6fe6350b83e14407c8d7309fd1a"
 
 [[override]]
   name = "k8s.io/api"
-  # revision for tag "kubernetes-1.9.3"
-  revision = "acf347b865f29325eb61f4cd2df11e86e073a5ee"
+  # revision for tag "kubernetes-1.11.2"
+  revision = "2d6f90ab1293a1fb871cf149423ebb72aa7423aa"
+
+[[override]]
+  name = "k8s.io/apiextensions-apiserver"
+  # revision for tag "kubernetes-1.11.2"
+  revision = "408db4a50408e2149acbd657bceb2480c13cb0a4"
 
 [[override]]
   name = "k8s.io/apimachinery"
-  # revision for tag "kubernetes-1.9.3"
-  revision = "19e3f5aa3adca672c153d324e6b7d82ff8935f03"
+  # revision for tag "kubernetes-1.11.2"
+  revision = "103fd098999dc9c0c88536f5c9ad2e5da39373ae"
+
+[[override]]
+  name = "k8s.io/client-go"
+  # revision for tag "kubernetes-1.11.2"
+  revision = "1f13a808da65775f22cbf47862c4e5898d8f4ca1"
+
+[[override]]
+  name = "sigs.k8s.io/controller-runtime"
+  version = "v0.1.4"
 
 [[override]]
   name = "github.com/russross/blackfriday"
@@ -39,20 +53,18 @@ required = [
   name = "github.com/docker/docker"
   branch = "master"
 
-[[override]]
-  name = "github.com/Azure/go-autorest"
-  version = "v9.8.1"
 
-[[override]]
-  name = "k8s.io/apiserver"
-  revision = "16f07649a010bed64bb9c7986bd9988f68ce0421"
+[prune]
+  go-tests = true
+  non-go = true
+
+  [[prune.project]]
+    name = "k8s.io/code-generator"
+    non-go = false
+    unused-packages = false
 
 [[constraint]]
   name = "github.com/operator-framework/operator-sdk"
   # The version rule is used for a specific release and the master branch for in between releases.
   branch = "master"
-  # version = "=v0.0.5"
-
-[[constraint]]
-  name = "k8s.io/helm"
-  revision = "6af75a8fd72e2aa18a2b278cfe5c7a1c5feca7f2"
+  # version = "=v0.0.6"
