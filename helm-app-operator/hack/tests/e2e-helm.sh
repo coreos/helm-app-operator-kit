@@ -78,9 +78,11 @@ fi
 # create CR
 kubectl create -f deploy/cr.yaml
 trap_add 'kubectl delete --ignore-not-found -f ${DIR1}/deploy/cr.yaml' EXIT
-if ! timeout 20s bash -c -- 'until kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.info.status.code}" | grep 1; do sleep 1; done';
+if ! timeout 1m bash -c -- 'until kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.info.status.code}" | grep 1; do sleep 1; done';
 then
+    kubectl describe crds
     kubectl logs deployment/memcached-operator
+    exit 1
 fi
 
 release_name=$(kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.name}")
