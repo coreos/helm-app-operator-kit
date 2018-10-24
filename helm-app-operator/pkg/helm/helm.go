@@ -70,11 +70,6 @@ const (
 	HelmChartEnvVar = "HELM_CHART"
 
 	defaultHelmChartWatchesFile = "/opt/helm/watches.yaml"
-
-	annotationReleaseName          = "helm.operator-sdk/release-name"
-	annotationUseNameAsReleaseName = "helm.operator-sdk/use-name-as-release-name"
-
-	valueResourceUID = "helm.operator-sdk/resource-uid"
 )
 
 // Installer can install and uninstall Helm releases given a custom resource
@@ -224,22 +219,7 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 	if err != nil {
 		return r, needsUpdate, fmt.Errorf("failed to parse values: %s", err)
 	}
-	uid := cpb.Value{
-		Value: string(r.GetUID()),
-	}
-	config := &cpb.Config{
-		Raw: string(cr),
-
-		// Store the resource UID as a config value in the release.
-		// This is helpful to determine release ownership, even in the
-		// case where a status update for the release fails. By setting
-		// it as a config value, it also gets saved in the storage
-		// backend used to record releases as they are installed and
-		// updated.
-		Values: map[string]*cpb.Value{
-			valueResourceUID: &uid,
-		},
-	}
+	config := &cpb.Config{Raw: string(cr)}
 	logrus.Debugf("Using values: %s", config.GetRaw())
 
 	err = processRequirements(chart, config)
@@ -285,9 +265,6 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 		needsUpdate = true
 		logrus.Infof("Installed release for %s release=%s", ResourceString(r), updatedRelease.GetName())
 
-	} else if !isReleaseOwner(r, latestRelease) {
-		// If this object is not the release owner, return an error.
-		return r, needsUpdate, fmt.Errorf("install error: release \"%s\" already exists", releaseName)
 	} else {
 		candidateRelease, err := c.getCandidateRelease(tiller, releaseName, chart, config)
 		if err != nil {
@@ -335,11 +312,6 @@ func (c installer) UninstallRelease(r *unstructured.Unstructured) (*unstructured
 	// If there is no history, the release has already been uninstalled,
 	// so there's nothing to do.
 	if len(h) == 0 {
-		return r, nil
-	}
-
-	// If this object is not the release owner, there's nothing to do.
-	if !isReleaseOwner(r, h[0]) {
 		return r, nil
 	}
 
@@ -494,24 +466,8 @@ func (c installer) tillerRendererForCR(r *unstructured.Unstructured) *tiller.Rel
 }
 
 func getReleaseName(r *unstructured.Unstructured) string {
-	status := v1alpha1.StatusFor(r)
-	if status.Release != nil {
-		return status.Release.GetName()
-	}
-	if v, ok := r.GetAnnotations()[annotationReleaseName]; ok {
-		return v
-	}
-	if v, ok := r.GetAnnotations()[annotationUseNameAsReleaseName]; ok && v == "true" {
-		return r.GetName()
-	}
-
-	// An empty release name will be populated automatically by tiller
-	// during installation
-	return ""
-}
-
-func isReleaseOwner(r *unstructured.Unstructured, rel *release.Release) bool {
-	return string(r.GetUID()) == rel.GetConfig().GetValues()[valueResourceUID].GetValue()
+	shortUID := strings.Replace(string(r.GetUID()), "-", "", -1)[:8]
+	return fmt.Sprintf("%s-%s", r.GetName(), shortUID)
 }
 
 func notFoundErr(err error) bool {
