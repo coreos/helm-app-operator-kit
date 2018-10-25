@@ -33,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/helm/pkg/chartutil"
 	helmengine "k8s.io/helm/pkg/engine"
 	"k8s.io/helm/pkg/kube"
@@ -46,8 +46,8 @@ import (
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
 
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/apis/app/v1alpha1"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/engine"
+	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/types"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/util"
 )
 
@@ -233,7 +233,7 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 
 	tiller := c.tillerRendererForCR(r)
 
-	status := v1alpha1.StatusFor(r)
+	status := types.StatusFor(r)
 	if err := c.syncReleaseStatus(*status); err != nil {
 		return r, needsUpdate, fmt.Errorf("failed to sync release status: %s", err)
 	}
@@ -294,10 +294,10 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 		}
 	}
 
-	status = v1alpha1.StatusFor(r)
+	status = types.StatusFor(r)
 	status.SetRelease(updatedRelease)
 	// TODO(alecmerdler): Call `status.SetPhase()` with `NOTES.txt` of rendered Chart
-	status.SetPhase(v1alpha1.PhaseApplied, v1alpha1.ReasonApplySuccessful, "")
+	status.SetPhase(types.PhaseApplied, types.ReasonApplySuccessful, "")
 	r.Object["status"] = status
 
 	return r, needsUpdate, nil
@@ -407,7 +407,7 @@ func (c installer) reconcileRelease(namespace string, expectedManifest string) e
 			return fmt.Errorf("failed to marshal JSON patch: %s", err)
 		}
 
-		_, err = helper.Patch(expected.Namespace, expected.Name, types.MergePatchType, patch)
+		_, err = helper.Patch(expected.Namespace, expected.Name, apitypes.MergePatchType, patch)
 		if err != nil {
 			return fmt.Errorf("patch error: %s", err)
 		}
@@ -429,7 +429,7 @@ func (c installer) getCandidateRelease(tiller *tiller.ReleaseServer, name string
 	return dryRunResponse.GetRelease(), nil
 }
 
-func (c installer) syncReleaseStatus(status v1alpha1.HelmAppStatus) error {
+func (c installer) syncReleaseStatus(status types.HelmAppStatus) error {
 	if status.Release == nil {
 		return nil
 	}
@@ -497,7 +497,7 @@ func processRequirements(chart *cpb.Chart, values *cpb.Config) error {
 	return nil
 }
 
-func shortenUID(uid types.UID) (shortUID string) {
+func shortenUID(uid apitypes.UID) (shortUID string) {
 	u := uuid.Parse(string(uid))
 	uidBytes, err := u.MarshalBinary()
 	if err != nil {
