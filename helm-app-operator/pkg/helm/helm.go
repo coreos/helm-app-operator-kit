@@ -22,12 +22,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/martinlindhe/base36"
 	"github.com/pborman/uuid"
-	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/sirupsen/logrus"
 
 	yaml "gopkg.in/yaml.v2"
@@ -50,6 +48,7 @@ import (
 
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/apis/app/v1alpha1"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/engine"
+	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/util"
 )
 
 const (
@@ -268,8 +267,8 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 			return r, needsUpdate, fmt.Errorf("install error: %s", err)
 		}
 		needsUpdate = true
-		diffStr := diff("", updatedRelease.GetManifest())
-		logrus.Infof("Installed release for %s release=%s; diff:\n%s", ResourceString(r), updatedRelease.GetName(), diffStr)
+		diffStr := util.Diff("", updatedRelease.GetManifest())
+		logrus.Infof("Installed release for %s release=%s; diff:\n%s", util.ResourceString(r), updatedRelease.GetName(), diffStr)
 	} else {
 		candidateRelease, err := c.getCandidateRelease(tiller, releaseName, chart, config)
 		if err != nil {
@@ -283,15 +282,15 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 				return r, needsUpdate, fmt.Errorf("reconcile error: %s", err)
 			}
 			updatedRelease = latestRelease
-			logrus.Infof("Reconciled release for %s release=%s", ResourceString(r), updatedRelease.GetName())
+			logrus.Infof("Reconciled release for %s release=%s", util.ResourceString(r), updatedRelease.GetName())
 		} else {
 			updatedRelease, err = c.updateRelease(tiller, releaseName, chart, config)
 			if err != nil {
 				return r, needsUpdate, fmt.Errorf("update error: %s", err)
 			}
 			needsUpdate = true
-			diffStr := diff(latestManifest, updatedRelease.GetManifest())
-			logrus.Infof("Updated release for %s release=%s; diff:\n%s", ResourceString(r), updatedRelease.GetName(), diffStr)
+			diffStr := util.Diff(latestManifest, updatedRelease.GetManifest())
+			logrus.Infof("Updated release for %s release=%s; diff:\n%s", util.ResourceString(r), updatedRelease.GetName(), diffStr)
 		}
 	}
 
@@ -329,14 +328,9 @@ func (c installer) UninstallRelease(r *unstructured.Unstructured) (*unstructured
 	if err != nil {
 		return r, err
 	}
-	diffStr := diff(uninstallResponse.GetRelease().GetManifest(), "")
-	logrus.Infof("Uninstalled release for %s release=%s; diff:\n%s", ResourceString(r), releaseName, diffStr)
+	diffStr := util.Diff(uninstallResponse.GetRelease().GetManifest(), "")
+	logrus.Infof("Uninstalled release for %s release=%s; diff:\n%s", util.ResourceString(r), releaseName, diffStr)
 	return r, nil
-}
-
-// ResourceString returns a human friendly string for the custom resource
-func ResourceString(r *unstructured.Unstructured) string {
-	return fmt.Sprintf("apiVersion=%s kind=%s name=%s/%s", r.GetAPIVersion(), r.GetKind(), r.GetNamespace(), r.GetName())
 }
 
 func (c installer) installRelease(tiller *tiller.ReleaseServer, namespace, name string, chart *cpb.Chart, config *cpb.Config) (*release.Release, error) {
@@ -511,39 +505,4 @@ func shortenUID(uid types.UID) (shortUID string) {
 	}
 	shortUID = strings.ToLower(base36.EncodeBytes(uidBytes))
 	return
-}
-
-func diff(a, b string) string {
-	dmp := diffmatchpatch.New()
-	wSrc, wDst, warray := dmp.DiffLinesToRunes(a, b)
-	diffs := dmp.DiffMainRunes(wSrc, wDst, false)
-	diffs = dmp.DiffCharsToLines(diffs, warray)
-	var buff bytes.Buffer
-	for _, diff := range diffs {
-		text := diff.Text
-		switch diff.Type {
-		case diffmatchpatch.DiffInsert:
-			_, _ = buff.WriteString("\x1b[32m")
-			_, _ = buff.WriteString(prefixLines(text, "+"))
-			_, _ = buff.WriteString("\x1b[0m")
-		case diffmatchpatch.DiffDelete:
-			_, _ = buff.WriteString("\x1b[31m")
-			_, _ = buff.WriteString(prefixLines(text, "-"))
-			_, _ = buff.WriteString("\x1b[0m")
-		case diffmatchpatch.DiffEqual:
-			_, _ = buff.WriteString(prefixLines(text, " "))
-		}
-	}
-	return buff.String()
-}
-
-func prefixLines(s, prefix string) string {
-	var buf bytes.Buffer
-	lines := strings.Split(s, "\n")
-	ls := regexp.MustCompile("^")
-	for _, line := range lines[:len(lines)-1] {
-		buf.WriteString(ls.ReplaceAllString(line, prefix))
-		buf.WriteString("\n")
-	}
-	return buf.String()
 }
