@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package helm
+package client
 
 import (
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -24,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-// NewTillerClientFromManager returns a Kubernetes client that can be used with
+// NewFromManager returns a Kubernetes client that can be used with
 // a Tiller server.
-func NewTillerClientFromManager(mgr manager.Manager) (*kube.Client, error) {
+func NewFromManager(mgr manager.Manager) (*kube.Client, error) {
 	c, err := newClientGetter(mgr)
 	if err != nil {
 		return nil, err
