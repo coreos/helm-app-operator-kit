@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package types contains types used by various components of the Helm
-// operator
-package types
+// Package controller provides functions for creating and registering a Helm
+// controller with a `controller-runtime` manager. It also provides a Helm
+// reconciler implementation that can be used to create a Helm-based operator.
+package controller

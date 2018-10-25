@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package types contains types used by various components of the Helm
-// operator
-package types
+// Package util contains helper functions and utilities used by various
+// components of the Helm operator
+package util

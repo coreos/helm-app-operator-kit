@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package types contains types used by various components of the Helm
-// operator
-package types
+// Package client provides helper functions for API clients used by the helm
+// operator.
+package client

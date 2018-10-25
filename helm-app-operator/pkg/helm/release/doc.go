@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package types contains types used by various components of the Helm
-// operator
-package types
+// Package release provides interfaces and default implementations for a Helm
+// release installer, which is used by the Helm controller and reconciler to
+// manage Helm releases in a cluster based on watched custom resources.
+package release
