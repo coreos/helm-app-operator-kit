@@ -24,6 +24,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/martinlindhe/base36"
+	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"
 
 	yaml "gopkg.in/yaml.v2"
@@ -264,7 +266,6 @@ func (c installer) ReconcileRelease(r *unstructured.Unstructured) (*unstructured
 		}
 		needsUpdate = true
 		logrus.Infof("Installed release for %s release=%s", ResourceString(r), updatedRelease.GetName())
-
 	} else {
 		candidateRelease, err := c.getCandidateRelease(tiller, releaseName, chart, config)
 		if err != nil {
@@ -343,13 +344,15 @@ func (c installer) installRelease(tiller *tiller.ReleaseServer, namespace, name 
 	releaseResponse, err := tiller.InstallRelease(context.TODO(), installReq)
 	if err != nil {
 		// Workaround for helm/helm#3338
-		uninstallReq := &services.UninstallReleaseRequest{
-			Name:  releaseResponse.GetRelease().GetName(),
-			Purge: true,
-		}
-		_, uninstallErr := tiller.UninstallRelease(context.TODO(), uninstallReq)
-		if uninstallErr != nil {
-			return nil, fmt.Errorf("failed to roll back failed installation: %s: %s", uninstallErr, err)
+		if releaseResponse.GetRelease() != nil {
+			uninstallReq := &services.UninstallReleaseRequest{
+				Name:  releaseResponse.GetRelease().GetName(),
+				Purge: true,
+			}
+			_, uninstallErr := tiller.UninstallRelease(context.TODO(), uninstallReq)
+			if uninstallErr != nil {
+				return nil, fmt.Errorf("failed to roll back failed installation: %s: %s", uninstallErr, err)
+			}
 		}
 		return nil, err
 	}
@@ -366,13 +369,15 @@ func (c installer) updateRelease(tiller *tiller.ReleaseServer, name string, char
 	releaseResponse, err := tiller.UpdateRelease(context.TODO(), updateReq)
 	if err != nil {
 		// Workaround for helm/helm#3338
-		rollbackReq := &services.RollbackReleaseRequest{
-			Name:  name,
-			Force: true,
-		}
-		_, rollbackErr := tiller.RollbackRelease(context.TODO(), rollbackReq)
-		if rollbackErr != nil {
-			return nil, fmt.Errorf("failed to roll back failed update: %s: %s", rollbackErr, err)
+		if releaseResponse.GetRelease() != nil {
+			rollbackReq := &services.RollbackReleaseRequest{
+				Name:  name,
+				Force: true,
+			}
+			_, rollbackErr := tiller.RollbackRelease(context.TODO(), rollbackReq)
+			if rollbackErr != nil {
+				return nil, fmt.Errorf("failed to roll back failed update: %s: %s", rollbackErr, err)
+			}
 		}
 		return nil, err
 	}
@@ -466,8 +471,7 @@ func (c installer) tillerRendererForCR(r *unstructured.Unstructured) *tiller.Rel
 }
 
 func getReleaseName(r *unstructured.Unstructured) string {
-	shortUID := strings.Replace(string(r.GetUID()), "-", "", -1)[:8]
-	return fmt.Sprintf("%s-%s", r.GetName(), shortUID)
+	return fmt.Sprintf("%s-%s", r.GetName(), shortenUID(r.GetUID()))
 }
 
 func notFoundErr(err error) bool {
@@ -491,4 +495,14 @@ func processRequirements(chart *cpb.Chart, values *cpb.Config) error {
 		return err
 	}
 	return nil
+}
+
+func shortenUID(uid types.UID) (shortUID string) {
+	u := uuid.Parse(string(uid))
+	uidBytes, err := u.MarshalBinary()
+	if err != nil {
+		shortUID = strings.Replace(string(uid), "-", "", -1)
+	}
+	shortUID = strings.ToLower(base36.EncodeBytes(uidBytes))
+	return
 }
