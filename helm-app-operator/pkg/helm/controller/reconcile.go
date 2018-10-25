@@ -26,14 +26,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/util"
+	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/release"
 )
 
 type helmOperatorReconciler struct {
 	Client       client.Client
 	GVK          schema.GroupVersionKind
-	Installer    helm.Installer
+	Installer    release.Installer
 	ResyncPeriod time.Duration
 }
 

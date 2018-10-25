@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm"
+	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/release"
 )
 
 // WatchOptions contains the necessary values to create a new controller that
@@ -36,7 +36,7 @@ import (
 type WatchOptions struct {
 	Namespace    string
 	GVK          schema.GroupVersionKind
-	Installer    helm.Installer
+	Installer    release.Installer
 	ResyncPeriod time.Duration
 }
 
