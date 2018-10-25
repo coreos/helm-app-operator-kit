@@ -37,7 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/helm/pkg/chartutil"
-	"k8s.io/helm/pkg/engine"
+	helmengine "k8s.io/helm/pkg/engine"
 	"k8s.io/helm/pkg/kube"
 	cpb "k8s.io/helm/pkg/proto/hapi/chart"
 	"k8s.io/helm/pkg/proto/hapi/release"
@@ -49,6 +49,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
 
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/apis/app/v1alpha1"
+	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/engine"
 )
 
 const (
@@ -459,8 +460,8 @@ func (c installer) tillerRendererForCR(r *unstructured.Unstructured) *tiller.Rel
 	ownerRefs := []metav1.OwnerReference{
 		*controllerRef,
 	}
-	baseEngine := engine.New()
-	e := NewOwnerRefEngine(baseEngine, ownerRefs)
+	baseEngine := helmengine.New()
+	e := engine.NewOwnerRefEngine(baseEngine, ownerRefs)
 	var ey environment.EngineYard = map[string]environment.Engine{
 		environment.GoTplEngine: e,
 	}
