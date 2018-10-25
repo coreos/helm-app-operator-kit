@@ -70,17 +70,17 @@ func main() {
 		logrus.Fatal(err)
 	}
 
-	installers, err := release.NewInstallersFromEnv(storageBackend, tillerKubeClient)
+	managers, err := release.NewManagersFromEnv(storageBackend, tillerKubeClient)
 	if err != nil {
 		logrus.Fatal(err)
 	}
 
-	for gvk, installer := range installers {
+	for gvk, manager := range managers {
 		// Register the controller with the manager.
 		controller.Add(mgr, controller.WatchOptions{
 			Namespace:    namespace,
 			GVK:          gvk,
-			Installer:    installer,
+			Manager:      manager,
 			ResyncPeriod: 5 * time.Second,
 		})
 	}

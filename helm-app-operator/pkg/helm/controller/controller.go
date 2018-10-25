@@ -36,7 +36,7 @@ import (
 type WatchOptions struct {
 	Namespace    string
 	GVK          schema.GroupVersionKind
-	Installer    release.Installer
+	Manager      release.Manager
 	ResyncPeriod time.Duration
 }
 
@@ -48,7 +48,7 @@ func Add(mgr manager.Manager, options WatchOptions) {
 	r := &HelmOperatorReconciler{
 		Client:       mgr.GetClient(),
 		GVK:          options.GVK,
-		Installer:    options.Installer,
+		Manager:      options.Manager,
 		ResyncPeriod: options.ResyncPeriod,
 	}
 

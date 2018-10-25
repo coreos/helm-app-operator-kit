@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/types"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/util"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/release"
 )
@@ -35,7 +36,7 @@ var _ reconcile.Reconciler = &HelmOperatorReconciler{}
 type HelmOperatorReconciler struct {
 	Client       client.Client
 	GVK          schema.GroupVersionKind
-	Installer    release.Installer
+	Manager      release.Manager
 	ResyncPeriod time.Duration
 }
 
@@ -59,23 +60,41 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, err
 	}
 
+	status := types.StatusFor(o)
+	releaseName := release.GetReleaseName(o)
+
 	deleted := o.GetDeletionTimestamp() != nil
 	pendingFinalizers := o.GetFinalizers()
 	if !deleted && !contains(pendingFinalizers, finalizer) {
 		logrus.Debugf("Adding finalizer \"%s\" to %s", finalizer, util.ResourceString(o))
 		finalizers := append(pendingFinalizers, finalizer)
 		o.SetFinalizers(finalizers)
-		err := r.Client.Update(context.TODO(), o)
+		err := r.updateResource(o, status)
 		return reconcile.Result{}, err
 	}
+
+	if err := r.Manager.Sync(o); err != nil {
+		logrus.Errorf("failed to sync info for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+		_ = r.updateResource(o, status)
+		return reconcile.Result{}, err
+	}
+
 	if deleted {
 		if !contains(pendingFinalizers, finalizer) {
-			logrus.Infof("Resource %s is terminated, skipping reconciliation", util.ResourceString(o))
+			logrus.Infof("Skipping uninstall for %s release=%s: finalizer not found", util.ResourceString(o), releaseName)
 			return reconcile.Result{}, nil
 		}
 
-		_, err = r.Installer.UninstallRelease(o)
+		uninstalledRelease, err := r.Manager.UninstallRelease(context.TODO(), o)
 		if err != nil {
+			if err == release.ErrNotFound {
+				logrus.Infof("Skipping uninstall for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+				return reconcile.Result{}, nil
+			}
+			logrus.Errorf("failed to uninstall release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+			status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+			_ = r.updateResource(o, status)
 			return reconcile.Result{}, err
 		}
 
@@ -86,25 +105,77 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 			}
 		}
 		o.SetFinalizers(finalizers)
-		err := r.Client.Update(context.TODO(), o)
+		diffStr := util.Diff(uninstalledRelease.GetManifest(), "")
+		logrus.Infof("Uninstalled release for %s release=%s; diff:\n%s", util.ResourceString(o), releaseName, diffStr)
+		status.SetPhase(types.PhaseNone, types.ReasonApplySuccessful, "")
+		status.SetRelease(nil)
+		err = r.updateResource(o, status)
 		return reconcile.Result{}, err
 	}
 
-	updatedResource, needsUpdate, err := r.Installer.ReconcileRelease(o)
+	isInstalled, err := r.Manager.IsReleaseInstalled(o)
 	if err != nil {
-		logrus.Errorf("failed to reconcile release for %s: %s", util.ResourceString(o), err)
+		logrus.Errorf("failed to get release installation status for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+		_ = r.updateResource(o, status)
 		return reconcile.Result{}, err
 	}
 
-	if needsUpdate {
-		err = r.Client.Update(context.TODO(), updatedResource)
+	if !isInstalled {
+		installedRelease, err := r.Manager.InstallRelease(context.TODO(), o)
 		if err != nil {
-			logrus.Errorf("failed to update resource status for %s: %s", util.ResourceString(o), err)
+			logrus.Errorf("failed to install release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+			status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+			_ = r.updateResource(o, status)
 			return reconcile.Result{}, err
 		}
+		diffStr := util.Diff("", installedRelease.GetManifest())
+		logrus.Infof("Installed release for %s release=%s; diff:\n%s", util.ResourceString(o), releaseName, diffStr)
+		status.SetPhase(types.PhaseApplied, types.ReasonApplySuccessful, installedRelease.GetInfo().GetStatus().GetNotes())
+		status.SetRelease(installedRelease)
+		err = r.updateResource(o, status)
+		return reconcile.Result{RequeueAfter: r.ResyncPeriod}, err
 	}
 
+	doReleaseUpdate, err := r.Manager.IsUpdateRequired(context.TODO(), o)
+	if err != nil {
+		logrus.Errorf("failed to get candidate release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+		_ = r.updateResource(o, status)
+		return reconcile.Result{}, err
+	}
+
+	if doReleaseUpdate {
+		previousRelease, updatedRelease, err := r.Manager.UpdateRelease(context.TODO(), o)
+		if err != nil {
+			logrus.Errorf("failed to update release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+			status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+			_ = r.updateResource(o, status)
+			return reconcile.Result{}, err
+		}
+		diffStr := util.Diff(previousRelease.GetManifest(), updatedRelease.GetManifest())
+		logrus.Infof("Updated release for %s release=%s; diff:\n%s", util.ResourceString(o), releaseName, diffStr)
+		status.SetPhase(types.PhaseApplied, types.ReasonApplySuccessful, updatedRelease.GetInfo().GetStatus().GetNotes())
+		status.SetRelease(updatedRelease)
+		err = r.updateResource(o, status)
+		return reconcile.Result{RequeueAfter: r.ResyncPeriod}, err
+	}
+
+	_, err = r.Manager.ReconcileRelease(context.TODO(), o)
+	if err != nil {
+		logrus.Errorf("failed to reconcile release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
+		_ = r.updateResource(o, status)
+		return reconcile.Result{}, err
+	}
+
+	logrus.Infof("Reconciled release for %s release=%s", util.ResourceString(o), releaseName)
 	return reconcile.Result{RequeueAfter: r.ResyncPeriod}, nil
+}
+
+func (r HelmOperatorReconciler) updateResource(o *unstructured.Unstructured, status *types.HelmAppStatus) error {
+	o.Object["status"] = status
+	return r.Client.Update(context.TODO(), o)
 }
 
 func contains(l []string, s string) bool {
