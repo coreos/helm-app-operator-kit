@@ -45,7 +45,7 @@ func Add(mgr manager.Manager, options WatchOptions) {
 	if options.ResyncPeriod == 0 {
 		options.ResyncPeriod = time.Minute
 	}
-	r := &helmOperatorReconciler{
+	r := &HelmOperatorReconciler{
 		Client:       mgr.GetClient(),
 		GVK:          options.GVK,
 		Installer:    options.Installer,

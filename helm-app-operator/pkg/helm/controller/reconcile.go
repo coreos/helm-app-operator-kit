@@ -30,7 +30,9 @@ import (
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/release"
 )
 
-type helmOperatorReconciler struct {
+var _ reconcile.Reconciler = &HelmOperatorReconciler{}
+
+type HelmOperatorReconciler struct {
 	Client       client.Client
 	GVK          schema.GroupVersionKind
 	Installer    release.Installer
@@ -41,7 +43,7 @@ const (
 	finalizer = "uninstall-helm-release"
 )
 
-func (r *helmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	o := &unstructured.Unstructured{}
 	o.SetGroupVersionKind(r.GVK)
 	o.SetNamespace(request.Namespace)
