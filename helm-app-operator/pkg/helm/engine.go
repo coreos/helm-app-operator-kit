@@ -16,6 +16,7 @@ package helm
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"bytes"
@@ -71,7 +72,8 @@ func (o *OwnerRefEngine) addOwnerRefs(fileContents string) (string, error) {
 	const documentSeparator = "---\n"
 	var outBuf bytes.Buffer
 
-	for _, manifest := range releaseutil.SplitManifests(fileContents) {
+	manifests := releaseutil.SplitManifests(fileContents)
+	for _, manifest := range sortManifests(manifests) {
 		manifestMap := chartutil.FromYaml(manifest)
 		if errors, ok := manifestMap["Error"]; ok {
 			return "", fmt.Errorf("error parsing rendered template to add ownerrefs: %v", errors)
@@ -107,4 +109,18 @@ func NewOwnerRefEngine(baseEngine environment.Engine, refs []metav1.OwnerReferen
 		Engine: baseEngine,
 		refs:   refs,
 	}
+}
+
+func sortManifests(in map[string]string) []string {
+	var keys []string
+	for k := range in {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var manifests []string
+	for _, k := range keys {
+		manifests = append(manifests, in[k])
+	}
+	return manifests
 }
