@@ -140,7 +140,7 @@ We'll use a tomcat-operator as an example.
 
 6. Create Kubernetes resource files for your CRD, CR, RBAC rules and operator
 
-    The [examples](https://github.com/operator-framework/helm-app-operator-kit/tree/master/examples/tomcat-operator) directory has examples of each of these files that can be used for the tomcat-operator (or modified for other uses).
+    The [examples](../examples/tomcat-operator) directory has examples of each of these files that can be used for the tomcat-operator (or modified for other uses).
 
     ```bash
     cp -r $GOPATH/src/github.com/operator-framework/helm-app-operator-kit/examples/tomcat-operator/ deploy/
