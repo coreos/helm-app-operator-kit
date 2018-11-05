@@ -19,9 +19,14 @@ rules:
   - events
   - configmaps
   - secrets
-  - namespaces
   verbs:
   - "*"
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
 - apiGroups:
   - apps
   resources:
