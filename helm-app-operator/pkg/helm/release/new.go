@@ -59,14 +59,14 @@ type watch struct {
 	Chart   string `yaml:"chart"`
 }
 
-// NewManager returns a new Helm manager capable of installing and uninstalling releases.
-func NewManager(storageBackend *storage.Storage, tillerKubeClient *kube.Client, chartDir string) Manager {
-	return manager{storageBackend, tillerKubeClient, chartDir}
+// NewManagerFactory returns a new Helm manager capable of installing and uninstalling releases.
+func NewManagerFactory(storageBackend *storage.Storage, tillerKubeClient *kube.Client, chartDir string) ManagerFactory {
+	return &managerFactory{storageBackend, tillerKubeClient, chartDir}
 }
 
-// newManagerFromEnv returns a GVK and manager based on configuration provided
+// newManagerFactoryFromEnv returns a GVK and manager based on configuration provided
 // in the environment.
-func newManagerFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.Client) (schema.GroupVersionKind, Manager, error) {
+func newManagerFactoryFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.Client) (schema.GroupVersionKind, ManagerFactory, error) {
 	apiVersion := os.Getenv(APIVersionEnvVar)
 	kind := os.Getenv(KindEnvVar)
 	chartDir := os.Getenv(HelmChartEnvVar)
@@ -86,26 +86,26 @@ func newManagerFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.C
 		return gvk, nil, fmt.Errorf("invalid chart directory %s: %s", chartDir, err)
 	}
 
-	manager := NewManager(storageBackend, tillerKubeClient, chartDir)
-	return gvk, manager, nil
+	managerFactory := NewManagerFactory(storageBackend, tillerKubeClient, chartDir)
+	return gvk, managerFactory, nil
 }
 
-// NewManagersFromEnv returns a map of managers, keyed by GVK, based on
+// NewManagerFactoriesFromEnv returns a map of managers, keyed by GVK, based on
 // configuration provided in the environment.
-func NewManagersFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.Client) (map[schema.GroupVersionKind]Manager, error) {
+func NewManagerFactoriesFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.Client) (map[schema.GroupVersionKind]ManagerFactory, error) {
 	if watchesFile, ok := getWatchesFile(); ok {
-		return NewManagersFromFile(storageBackend, tillerKubeClient, watchesFile)
+		return NewManagerFactoriesFromFile(storageBackend, tillerKubeClient, watchesFile)
 	}
-	gvk, manager, err := newManagerFromEnv(storageBackend, tillerKubeClient)
+	gvk, managerFactory, err := newManagerFactoryFromEnv(storageBackend, tillerKubeClient)
 	if err != nil {
 		return nil, err
 	}
-	return map[schema.GroupVersionKind]Manager{gvk: manager}, nil
+	return map[schema.GroupVersionKind]ManagerFactory{gvk: managerFactory}, nil
 }
 
-// NewManagersFromFile reads the config file at the provided path and returns a map
+// NewManagerFactoriesFromFile reads the config file at the provided path and returns a map
 // of managers, keyed by each GVK in the config.
-func NewManagersFromFile(storageBackend *storage.Storage, tillerKubeClient *kube.Client, path string) (map[schema.GroupVersionKind]Manager, error) {
+func NewManagerFactoriesFromFile(storageBackend *storage.Storage, tillerKubeClient *kube.Client, path string) (map[schema.GroupVersionKind]ManagerFactory, error) {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %s", err)
@@ -116,7 +116,7 @@ func NewManagersFromFile(storageBackend *storage.Storage, tillerKubeClient *kube
 		return nil, fmt.Errorf("failed to unmarshal config: %s", err)
 	}
 
-	m := map[schema.GroupVersionKind]Manager{}
+	m := map[schema.GroupVersionKind]ManagerFactory{}
 	for _, w := range watches {
 		gvk := schema.GroupVersionKind{
 			Group:   w.Group,
@@ -135,7 +135,7 @@ func NewManagersFromFile(storageBackend *storage.Storage, tillerKubeClient *kube
 		if _, ok := m[gvk]; ok {
 			return nil, fmt.Errorf("duplicate GVK: %s", gvk)
 		}
-		m[gvk] = NewManager(storageBackend, tillerKubeClient, w.Chart)
+		m[gvk] = NewManagerFactory(storageBackend, tillerKubeClient, w.Chart)
 	}
 	return m, nil
 }

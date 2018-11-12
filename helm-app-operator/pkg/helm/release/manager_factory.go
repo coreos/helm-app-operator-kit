@@ -15,27 +15,22 @@
 package release
 
 import (
-	"fmt"
-	"strings"
-
-	"github.com/martinlindhe/base36"
-	"github.com/pborman/uuid"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/helm/pkg/kube"
+	"k8s.io/helm/pkg/storage"
 )
 
-// GetReleaseName returns a cluster-wide unique release name for the passed in
-// object.
-func GetReleaseName(r *unstructured.Unstructured) string {
-	return fmt.Sprintf("%s-%s", r.GetName(), shortenUID(r.GetUID()))
+// ManagerFactory can create new Helm release Managers given a custom resource.
+type ManagerFactory interface {
+	NewManager(*unstructured.Unstructured) Manager
 }
 
-func shortenUID(uid apitypes.UID) string {
-	u := uuid.Parse(string(uid))
-	uidBytes, err := u.MarshalBinary()
-	if err != nil {
-		return strings.Replace(string(uid), "-", "", -1)
-	}
-	return strings.ToLower(base36.EncodeBytes(uidBytes))
+type managerFactory struct {
+	storageBackend   *storage.Storage
+	tillerKubeClient *kube.Client
+	chartDir         string
+}
+
+func (f *managerFactory) NewManager(u *unstructured.Unstructured) Manager {
+	return newManagerForCR(f.storageBackend, f.tillerKubeClient, f.chartDir, u)
 }

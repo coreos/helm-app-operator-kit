@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/martinlindhe/base36"
+	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"
 
 	yaml "gopkg.in/yaml.v2"
@@ -46,46 +48,67 @@ import (
 )
 
 var (
+	// ErrNotFound indicates that a release could not be found
 	ErrNotFound = errors.New("release not found")
 )
 
 // Manager can install and uninstall Helm releases given a custom resource
 // which provides runtime values for the Chart.
 type Manager interface {
-	Sync(*unstructured.Unstructured) error
-	IsReleaseInstalled(*unstructured.Unstructured) (bool, error)
-	IsUpdateRequired(context.Context, *unstructured.Unstructured) (bool, error)
-	InstallRelease(context.Context, *unstructured.Unstructured) (*rpb.Release, error)
-	UpdateRelease(context.Context, *unstructured.Unstructured) (*rpb.Release, *rpb.Release, error)
-	ReconcileRelease(context.Context, *unstructured.Unstructured) (*rpb.Release, error)
-	UninstallRelease(context.Context, *unstructured.Unstructured) (*rpb.Release, error)
+	Sync() error
+	GetReleaseName() string
+	PrepareRelease(context.Context) error
+	InstallRelease(context.Context) (*rpb.Release, error)
+	UpdateRelease(context.Context) (*rpb.Release, *rpb.Release, error)
+	ReconcileRelease(context.Context) (*rpb.Release, error)
+	UninstallRelease(context.Context) (*rpb.Release, error)
+	IsReleaseInstalled() bool
+	IsUpdateRequired() bool
 }
 
 type manager struct {
 	storageBackend   *storage.Storage
 	tillerKubeClient *kube.Client
 	chartDir         string
+	tiller           *tiller.ReleaseServer
+
+	namespace   string
+	releaseName string
+
+	spec   interface{}
+	status *types.HelmAppStatus
+
+	chart  *cpb.Chart
+	config *cpb.Config
+
+	isReleaseInstalled bool
+	isUpdateRequired   bool
+	deployedRelease    *rpb.Release
 }
 
-type info struct {
-	tiller          *tiller.ReleaseServer
-	namespace       string
-	releaseName     string
-	deployedRelease *rpb.Release
-	chart           *cpb.Chart
-	config          *cpb.Config
+func newManagerForCR(storageBackend *storage.Storage, tillerKubeClient *kube.Client, chartDir string, u *unstructured.Unstructured) Manager {
+	m := &manager{
+		storageBackend:   storageBackend,
+		tillerKubeClient: tillerKubeClient,
+		chartDir:         chartDir,
+		namespace:        u.GetNamespace(),
+		releaseName:      releaseNameForCR(u),
+		spec:             u.Object["spec"],
+		status:           types.StatusFor(u),
+	}
+	m.tiller = m.tillerRendererForCR(u)
+	return m
 }
 
-// Sync accepts a custom resource, and syncs its status with the manager's
-// storage backend.
-func (c manager) Sync(r *unstructured.Unstructured) error {
-	status := types.StatusFor(r)
-	if status.Release != nil {
-		name := status.Release.GetName()
-		version := status.Release.GetVersion()
+// Sync ensures that the resource status is synced with the tiller storage
+// backend.
+func (c manager) Sync() error {
+	if c.status.Release != nil {
+		name := c.status.Release.GetName()
+		version := c.status.Release.GetVersion()
 		_, err := c.storageBackend.Get(name, version)
 		if err != nil {
-			err = c.storageBackend.Create(status.Release)
+			err = c.storageBackend.Create(c.status.Release)
 			if err != nil {
 				return err
 			}
@@ -93,8 +116,7 @@ func (c manager) Sync(r *unstructured.Unstructured) error {
 	}
 
 	// Get release history for this release name
-	releaseName := GetReleaseName(r)
-	releases, err := c.storageBackend.History(releaseName)
+	releases, err := c.storageBackend.History(c.releaseName)
 	if err != nil && !notFoundErr(err) {
 		return fmt.Errorf("failed to retrieve release history: %s", err)
 	}
@@ -117,69 +139,73 @@ func notFoundErr(err error) bool {
 	return strings.Contains(err.Error(), "not found")
 }
 
-// IsReleaseInstalled returns whether a release is deployed. If the release is
-// not found, it returns ErrNotFound. If an error occurs fetching the release
-// information from the manager's storage backend, the underlying error is
-// returned.
-func (c manager) IsReleaseInstalled(r *unstructured.Unstructured) (bool, error) {
-	releaseName := GetReleaseName(r)
-	_, err := c.getDeployedRelease(releaseName)
-	if err == ErrNotFound {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+// GetReleaseName returns the release name for the release managed by this
+// release manager.
+func (c manager) GetReleaseName() string {
+	return c.releaseName
 }
 
-// IsUpdateRequired executes a dry run update and returns whether the dry run
-// output is different than the currently deployed release. If an error occurs
-// getting release status or executing the dry run update, the underlying error
-// is returned.
-func (c manager) IsUpdateRequired(ctx context.Context, r *unstructured.Unstructured) (bool, error) {
-	info, err := c.infoForCR(r)
+// PrepareRelease loads the chart and config for the release and updates
+// state that is used to determine what release steps should be executed.
+func (c *manager) PrepareRelease(ctx context.Context) error {
+	// Load the chart and config for this release.
+	chart, config, err := c.loadChartAndConfig()
 	if err != nil {
-		return false, err
+		return fmt.Errorf("failed to load chart and config: %s", err)
 	}
+	c.chart = chart
+	c.config = config
+
+	// Load the deployed release from the storage backend, if it exists.
+	deployedRelease, err := c.getDeployedRelease()
+	if err == ErrNotFound {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to retrieve deployed release info: %s", err)
+	}
+	c.deployedRelease = deployedRelease
+	c.isReleaseInstalled = true
+
+	// If there is a deployed release, do a dry run update to see if we need to
+	// update the release or just reconcile resources.
 	dryRunReq := &services.UpdateReleaseRequest{
-		Name:   info.releaseName,
-		Chart:  info.chart,
-		Values: info.config,
+		Name:   c.releaseName,
+		Chart:  c.chart,
+		Values: c.config,
 		DryRun: true,
 	}
-	dryRunResponse, err := info.tiller.UpdateRelease(ctx, dryRunReq)
+	dryRunResponse, err := c.tiller.UpdateRelease(ctx, dryRunReq)
 	if err != nil {
-		return false, err
+		return fmt.Errorf("failed to execute dry run update: %s", err)
 	}
-	return info.deployedRelease.GetManifest() != dryRunResponse.GetRelease().GetManifest(), nil
+	if c.deployedRelease.GetManifest() != dryRunResponse.GetRelease().GetManifest() {
+		c.isUpdateRequired = true
+	}
+
+	return nil
 }
 
-// InstallRelease installs a new Helm release based on the passed in object.
-// If an installation error occurs, this method will attempt to uninstall
-// the release and return the underlying error.
-func (c manager) InstallRelease(ctx context.Context, r *unstructured.Unstructured) (*rpb.Release, error) {
-	info, err := c.infoForCR(r)
-	if err != nil {
-		return nil, err
-	}
-
+// InstallRelease installs a new Helm release. If an installation error occurs,
+// this method will attempt to uninstall the release and return the underlying
+// error.
+func (c manager) InstallRelease(ctx context.Context) (*rpb.Release, error) {
 	installReq := &services.InstallReleaseRequest{
-		Namespace: info.namespace,
-		Name:      info.releaseName,
-		Chart:     info.chart,
-		Values:    info.config,
+		Namespace: c.namespace,
+		Name:      c.releaseName,
+		Chart:     c.chart,
+		Values:    c.config,
 	}
 
-	releaseResponse, err := info.tiller.InstallRelease(ctx, installReq)
+	releaseResponse, err := c.tiller.InstallRelease(ctx, installReq)
 	if err != nil {
 		// Workaround for helm/helm#3338
 		if releaseResponse.GetRelease() != nil {
 			uninstallReq := &services.UninstallReleaseRequest{
-				Name:  info.releaseName,
+				Name:  c.releaseName,
 				Purge: true,
 			}
-			_, uninstallErr := info.tiller.UninstallRelease(ctx, uninstallReq)
+			_, uninstallErr := c.tiller.UninstallRelease(ctx, uninstallReq)
 			if uninstallErr != nil {
 				return nil, fmt.Errorf("failed to roll back failed installation: %s: %s", uninstallErr, err)
 			}
@@ -189,49 +215,38 @@ func (c manager) InstallRelease(ctx context.Context, r *unstructured.Unstructure
 	return releaseResponse.GetRelease(), nil
 }
 
-// UpdateRelease updates an existing Helm release based on the passed in
-// object. If an update error occurs, this method will attempt to rollback
-// the release and return the underlying error.
-func (c manager) UpdateRelease(ctx context.Context, r *unstructured.Unstructured) (*rpb.Release, *rpb.Release, error) {
-	info, err := c.infoForCR(r)
-	if err != nil {
-		return nil, nil, err
-	}
-
+// UpdateRelease updates an existing Helm release. If an update error occurs,
+// this method will attempt to rollback the release and return the underlying
+// error.
+func (c manager) UpdateRelease(ctx context.Context) (*rpb.Release, *rpb.Release, error) {
 	updateReq := &services.UpdateReleaseRequest{
-		Name:   info.releaseName,
-		Chart:  info.chart,
-		Values: info.config,
+		Name:   c.releaseName,
+		Chart:  c.chart,
+		Values: c.config,
 	}
 
-	releaseResponse, err := info.tiller.UpdateRelease(ctx, updateReq)
+	releaseResponse, err := c.tiller.UpdateRelease(ctx, updateReq)
 	if err != nil {
 		// Workaround for helm/helm#3338
 		if releaseResponse.GetRelease() != nil {
 			rollbackReq := &services.RollbackReleaseRequest{
-				Name:  info.releaseName,
+				Name:  c.releaseName,
 				Force: true,
 			}
-			_, rollbackErr := info.tiller.RollbackRelease(ctx, rollbackReq)
+			_, rollbackErr := c.tiller.RollbackRelease(ctx, rollbackReq)
 			if rollbackErr != nil {
 				return nil, nil, fmt.Errorf("failed to roll back failed update: %s: %s", rollbackErr, err)
 			}
 		}
 		return nil, nil, err
 	}
-	return info.deployedRelease, releaseResponse.GetRelease(), nil
+	return c.deployedRelease, releaseResponse.GetRelease(), nil
 }
 
 // ReconcileRelease reconciles the underlying resources of an existing Helm
-// release based on the passed in object. If an error occurs, it will be
-// returned.
-func (c manager) ReconcileRelease(ctx context.Context, r *unstructured.Unstructured) (*rpb.Release, error) {
-	info, err := c.infoForCR(r)
-	if err != nil {
-		return nil, err
-	}
-
-	expectedInfos, err := c.tillerKubeClient.BuildUnstructured(info.namespace, bytes.NewBufferString(info.deployedRelease.GetManifest()))
+// release. If an error occurs, it will be returned.
+func (c manager) ReconcileRelease(ctx context.Context) (*rpb.Release, error) {
+	expectedInfos, err := c.tillerKubeClient.BuildUnstructured(c.namespace, bytes.NewBufferString(c.deployedRelease.GetManifest()))
 	if err != nil {
 		return nil, err
 	}
@@ -262,17 +277,15 @@ func (c manager) ReconcileRelease(ctx context.Context, r *unstructured.Unstructu
 	if err != nil {
 		return nil, err
 	}
-	return info.deployedRelease, nil
+	return c.deployedRelease, nil
 }
 
 // UninstallRelease uninstalls the Helm release based on the passed in object.
 // If no release exists for the object, ErrNotFound will be returned. If an
 // uninstall error occurs, it will be returned.
-func (c manager) UninstallRelease(ctx context.Context, r *unstructured.Unstructured) (*rpb.Release, error) {
-	releaseName := GetReleaseName(r)
-
+func (c manager) UninstallRelease(ctx context.Context) (*rpb.Release, error) {
 	// Get history of this release
-	h, err := c.storageBackend.History(releaseName)
+	h, err := c.storageBackend.History(c.releaseName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get release history: %s", err)
 	}
@@ -282,37 +295,26 @@ func (c manager) UninstallRelease(ctx context.Context, r *unstructured.Unstructu
 		return nil, ErrNotFound
 	}
 
-	tiller := c.tillerRendererForCR(r)
-	uninstallResponse, err := tiller.UninstallRelease(ctx, &services.UninstallReleaseRequest{
-		Name:  releaseName,
+	uninstallResponse, err := c.tiller.UninstallRelease(ctx, &services.UninstallReleaseRequest{
+		Name:  c.releaseName,
 		Purge: true,
 	})
 	return uninstallResponse.GetRelease(), err
 }
 
-func (c manager) infoForCR(r *unstructured.Unstructured) (*info, error) {
-	chart, config, err := c.chartAndConfigForCR(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load chart and config: %s", err)
-	}
-
-	releaseName := GetReleaseName(r)
-	deployedRelease, err := c.getDeployedRelease(releaseName)
-	if err != nil && err != ErrNotFound {
-		return nil, fmt.Errorf("failed to retrieve deployed release info: %s", err)
-	}
-
-	return &info{
-		tiller:          c.tillerRendererForCR(r),
-		namespace:       r.GetNamespace(),
-		releaseName:     releaseName,
-		deployedRelease: deployedRelease,
-		chart:           chart,
-		config:          config,
-	}, nil
+// IsReleaseInstalled returns whether a release is installed. This method must
+// be called only after PrepareRelease has been called.
+func (c manager) IsReleaseInstalled() bool {
+	return c.isReleaseInstalled
 }
 
-func (c manager) chartAndConfigForCR(r *unstructured.Unstructured) (*cpb.Chart, *cpb.Config, error) {
+// IsUpdateRequired returns whether a release needs to be updated. This
+// method must be called only after PrepareRelease has been called.
+func (c manager) IsUpdateRequired() bool {
+	return c.isUpdateRequired
+}
+
+func (c manager) loadChartAndConfig() (*cpb.Chart, *cpb.Config, error) {
 	// chart is mutated by the call to processRequirements,
 	// so we need to reload it from disk every time.
 	chart, err := chartutil.LoadDir(c.chartDir)
@@ -320,7 +322,7 @@ func (c manager) chartAndConfigForCR(r *unstructured.Unstructured) (*cpb.Chart, 
 		return nil, nil, fmt.Errorf("failed to load chart: %s", err)
 	}
 
-	cr, err := valuesFromResource(r)
+	cr, err := yaml.Marshal(c.spec)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse values: %s", err)
 	}
@@ -332,10 +334,6 @@ func (c manager) chartAndConfigForCR(r *unstructured.Unstructured) (*cpb.Chart, 
 		return nil, nil, fmt.Errorf("failed to process chart requirements: %s", err)
 	}
 	return chart, config, nil
-}
-
-func valuesFromResource(r *unstructured.Unstructured) ([]byte, error) {
-	return yaml.Marshal(r.Object["spec"])
 }
 
 // processRequirements will process the requirements file
@@ -353,8 +351,8 @@ func processRequirements(chart *cpb.Chart, values *cpb.Config) error {
 	return nil
 }
 
-func (c manager) getDeployedRelease(releaseName string) (*rpb.Release, error) {
-	deployedRelease, err := c.storageBackend.Deployed(releaseName)
+func (c manager) getDeployedRelease() (*rpb.Release, error) {
+	deployedRelease, err := c.storageBackend.Deployed(c.releaseName)
 	if err != nil {
 		if strings.Contains(err.Error(), "has no deployed releases") {
 			return nil, ErrNotFound
@@ -385,4 +383,17 @@ func (c manager) tillerRendererForCR(r *unstructured.Unstructured) *tiller.Relea
 	internalClientSet, _ := internalclientset.NewForConfig(kubeconfig)
 
 	return tiller.NewReleaseServer(env, internalClientSet, false)
+}
+
+func releaseNameForCR(u *unstructured.Unstructured) string {
+	return fmt.Sprintf("%s-%s", u.GetName(), shortenUID(u.GetUID()))
+}
+
+func shortenUID(uid apitypes.UID) string {
+	u := uuid.Parse(string(uid))
+	uidBytes, err := u.MarshalBinary()
+	if err != nil {
+		return strings.Replace(string(uid), "-", "", -1)
+	}
+	return strings.ToLower(base36.EncodeBytes(uidBytes))
 }

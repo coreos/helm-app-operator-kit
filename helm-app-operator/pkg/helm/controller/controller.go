@@ -34,10 +34,10 @@ import (
 // WatchOptions contains the necessary values to create a new controller that
 // manages helm releases in a particular namespace based on a GVK watch.
 type WatchOptions struct {
-	Namespace    string
-	GVK          schema.GroupVersionKind
-	Manager      release.Manager
-	ResyncPeriod time.Duration
+	Namespace      string
+	GVK            schema.GroupVersionKind
+	ManagerFactory release.ManagerFactory
+	ResyncPeriod   time.Duration
 }
 
 // Add creates a new helm operator controller and adds it to the manager
@@ -46,10 +46,10 @@ func Add(mgr manager.Manager, options WatchOptions) {
 		options.ResyncPeriod = time.Minute
 	}
 	r := &HelmOperatorReconciler{
-		Client:       mgr.GetClient(),
-		GVK:          options.GVK,
-		Manager:      options.Manager,
-		ResyncPeriod: options.ResyncPeriod,
+		Client:         mgr.GetClient(),
+		GVK:            options.GVK,
+		ManagerFactory: options.ManagerFactory,
+		ResyncPeriod:   options.ResyncPeriod,
 	}
 
 	// Register the GVK with the schema

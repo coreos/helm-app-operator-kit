@@ -70,18 +70,18 @@ func main() {
 		logrus.Fatal(err)
 	}
 
-	managers, err := release.NewManagersFromEnv(storageBackend, tillerKubeClient)
+	factories, err := release.NewManagerFactoriesFromEnv(storageBackend, tillerKubeClient)
 	if err != nil {
 		logrus.Fatal(err)
 	}
 
-	for gvk, manager := range managers {
+	for gvk, factory := range factories {
 		// Register the controller with the manager.
 		controller.Add(mgr, controller.WatchOptions{
-			Namespace:    namespace,
-			GVK:          gvk,
-			Manager:      manager,
-			ResyncPeriod: 5 * time.Second,
+			Namespace:      namespace,
+			GVK:            gvk,
+			ManagerFactory: factory,
+			ResyncPeriod:   5 * time.Second,
 		})
 	}
 

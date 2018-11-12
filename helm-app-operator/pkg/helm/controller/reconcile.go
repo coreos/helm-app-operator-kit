@@ -34,10 +34,10 @@ import (
 var _ reconcile.Reconciler = &HelmOperatorReconciler{}
 
 type HelmOperatorReconciler struct {
-	Client       client.Client
-	GVK          schema.GroupVersionKind
-	Manager      release.Manager
-	ResyncPeriod time.Duration
+	Client         client.Client
+	GVK            schema.GroupVersionKind
+	ManagerFactory release.ManagerFactory
+	ResyncPeriod   time.Duration
 }
 
 const (
@@ -60,8 +60,9 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, err
 	}
 
+	manager := r.ManagerFactory.NewManager(o)
 	status := types.StatusFor(o)
-	releaseName := release.GetReleaseName(o)
+	releaseName := manager.GetReleaseName()
 
 	deleted := o.GetDeletionTimestamp() != nil
 	pendingFinalizers := o.GetFinalizers()
@@ -73,7 +74,7 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, err
 	}
 
-	if err := r.Manager.Sync(o); err != nil {
+	if err := manager.Sync(); err != nil {
 		logrus.Errorf("failed to sync info for %s release=%s: %s", util.ResourceString(o), releaseName, err)
 		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
 		_ = r.updateResource(o, status)
@@ -86,7 +87,7 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 			return reconcile.Result{}, nil
 		}
 
-		uninstalledRelease, err := r.Manager.UninstallRelease(context.TODO(), o)
+		uninstalledRelease, err := manager.UninstallRelease(context.TODO())
 		if err != nil {
 			if err == release.ErrNotFound {
 				logrus.Infof("Skipping uninstall for %s release=%s: %s", util.ResourceString(o), releaseName, err)
@@ -113,16 +114,16 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, err
 	}
 
-	isInstalled, err := r.Manager.IsReleaseInstalled(o)
+	err = manager.PrepareRelease(context.TODO())
 	if err != nil {
-		logrus.Errorf("failed to get release installation status for %s release=%s: %s", util.ResourceString(o), releaseName, err)
+		logrus.Errorf("failed to prepare release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
 		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
 		_ = r.updateResource(o, status)
 		return reconcile.Result{}, err
 	}
 
-	if !isInstalled {
-		installedRelease, err := r.Manager.InstallRelease(context.TODO(), o)
+	if !manager.IsReleaseInstalled() {
+		installedRelease, err := manager.InstallRelease(context.TODO())
 		if err != nil {
 			logrus.Errorf("failed to install release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
 			status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
@@ -137,16 +138,8 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{RequeueAfter: r.ResyncPeriod}, err
 	}
 
-	doReleaseUpdate, err := r.Manager.IsUpdateRequired(context.TODO(), o)
-	if err != nil {
-		logrus.Errorf("failed to get candidate release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
-		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
-		_ = r.updateResource(o, status)
-		return reconcile.Result{}, err
-	}
-
-	if doReleaseUpdate {
-		previousRelease, updatedRelease, err := r.Manager.UpdateRelease(context.TODO(), o)
+	if manager.IsUpdateRequired() {
+		previousRelease, updatedRelease, err := manager.UpdateRelease(context.TODO())
 		if err != nil {
 			logrus.Errorf("failed to update release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
 			status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
@@ -161,7 +154,7 @@ func (r HelmOperatorReconciler) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{RequeueAfter: r.ResyncPeriod}, err
 	}
 
-	_, err = r.Manager.ReconcileRelease(context.TODO(), o)
+	_, err = manager.ReconcileRelease(context.TODO())
 	if err != nil {
 		logrus.Errorf("failed to reconcile release for %s release=%s: %s", util.ResourceString(o), releaseName, err)
 		status.SetPhase(types.PhaseFailed, types.ReasonApplyFailed, err.Error())
