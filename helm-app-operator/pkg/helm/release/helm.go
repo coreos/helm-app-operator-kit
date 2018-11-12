@@ -18,10 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"strings"
 
 	"github.com/martinlindhe/base36"
@@ -32,7 +29,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/helm/pkg/chartutil"
 	helmengine "k8s.io/helm/pkg/engine"
@@ -51,31 +47,6 @@ import (
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/util"
 )
 
-const (
-	// HelmChartWatchesEnvVar is the environment variable for a YAML
-	// configuration file containing mappings of GVKs to helm charts. Use of
-	// this environment variable overrides the watch configuration provided
-	// by API_VERSION, KIND, and HELM_CHART, and it allows users to configure
-	// multiple watches, each with a different chart.
-	HelmChartWatchesEnvVar = "HELM_CHART_WATCHES"
-
-	// APIVersionEnvVar is the environment variable for the group and version
-	// to be watched using the format `<group>/<version>`
-	// (e.g. "example.com/v1alpha1").
-	APIVersionEnvVar = "API_VERSION"
-
-	// KindEnvVar is the environment variable for the kind to be watched. The
-	// value is typically singular and should be CamelCased (e.g. "MyApp").
-	KindEnvVar = "KIND"
-
-	// HelmChartEnvVar is the environment variable for the directory location
-	// of the helm chart to be installed for CRs that match the values for the
-	// API_VERSION and KIND environment variables.
-	HelmChartEnvVar = "HELM_CHART"
-
-	defaultHelmChartWatchesFile = "/opt/helm/watches.yaml"
-)
-
 // Installer can install and uninstall Helm releases given a custom resource
 // which provides runtime values for the Chart.
 type Installer interface {
@@ -87,121 +58,6 @@ type installer struct {
 	storageBackend   *storage.Storage
 	tillerKubeClient *kube.Client
 	chartDir         string
-}
-
-type watch struct {
-	Group   string `yaml:"group"`
-	Version string `yaml:"version"`
-	Kind    string `yaml:"kind"`
-	Chart   string `yaml:"chart"`
-}
-
-// NewInstaller returns a new Helm installer capable of installing and uninstalling releases.
-func NewInstaller(storageBackend *storage.Storage, tillerKubeClient *kube.Client, chartDir string) Installer {
-	return installer{storageBackend, tillerKubeClient, chartDir}
-}
-
-// newInstallerFromEnv returns a GVK and installer based on configuration provided
-// in the environment.
-func newInstallerFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.Client) (schema.GroupVersionKind, Installer, error) {
-	apiVersion := os.Getenv(APIVersionEnvVar)
-	kind := os.Getenv(KindEnvVar)
-	chartDir := os.Getenv(HelmChartEnvVar)
-
-	var gvk schema.GroupVersionKind
-	gv, err := schema.ParseGroupVersion(apiVersion)
-	if err != nil {
-		return gvk, nil, err
-	}
-	gvk = gv.WithKind(kind)
-
-	if err := verifyGVK(gvk); err != nil {
-		return gvk, nil, fmt.Errorf("invalid GVK: %s: %s", gvk, err)
-	}
-
-	if _, err := chartutil.IsChartDir(chartDir); err != nil {
-		return gvk, nil, fmt.Errorf("invalid chart directory %s: %s", chartDir, err)
-	}
-
-	installer := NewInstaller(storageBackend, tillerKubeClient, chartDir)
-	return gvk, installer, nil
-}
-
-// NewInstallersFromEnv returns a map of installers, keyed by GVK, based on
-// configuration provided in the environment.
-func NewInstallersFromEnv(storageBackend *storage.Storage, tillerKubeClient *kube.Client) (map[schema.GroupVersionKind]Installer, error) {
-	if watchesFile, ok := getWatchesFile(); ok {
-		return NewInstallersFromFile(storageBackend, tillerKubeClient, watchesFile)
-	}
-	gvk, installer, err := newInstallerFromEnv(storageBackend, tillerKubeClient)
-	if err != nil {
-		return nil, err
-	}
-	return map[schema.GroupVersionKind]Installer{gvk: installer}, nil
-}
-
-// NewInstallersFromFile reads the config file at the provided path and returns a map
-// of installers, keyed by each GVK in the config.
-func NewInstallersFromFile(storageBackend *storage.Storage, tillerKubeClient *kube.Client, path string) (map[schema.GroupVersionKind]Installer, error) {
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %s", err)
-	}
-	watches := []watch{}
-	err = yaml.Unmarshal(b, &watches)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %s", err)
-	}
-
-	m := map[schema.GroupVersionKind]Installer{}
-	for _, w := range watches {
-		gvk := schema.GroupVersionKind{
-			Group:   w.Group,
-			Version: w.Version,
-			Kind:    w.Kind,
-		}
-
-		if err := verifyGVK(gvk); err != nil {
-			return nil, fmt.Errorf("invalid GVK: %s: %s", gvk, err)
-		}
-
-		if _, err := chartutil.IsChartDir(w.Chart); err != nil {
-			return nil, fmt.Errorf("invalid chart directory %s: %s", w.Chart, err)
-		}
-
-		if _, ok := m[gvk]; ok {
-			return nil, fmt.Errorf("duplicate GVK: %s", gvk)
-		}
-		m[gvk] = NewInstaller(storageBackend, tillerKubeClient, w.Chart)
-	}
-	return m, nil
-}
-
-func verifyGVK(gvk schema.GroupVersionKind) error {
-	// A GVK without a group is valid. Certain scenarios may cause a GVK
-	// without a group to fail in other ways later in the initialization
-	// process.
-	if gvk.Version == "" {
-		return errors.New("version must not be empty")
-	}
-	if gvk.Kind == "" {
-		return errors.New("kind must not be empty")
-	}
-	return nil
-}
-
-func getWatchesFile() (string, bool) {
-	// If the watches env variable is set (even if it's an empty string), use it
-	// since the user explicitly set it.
-	if watchesFile, ok := os.LookupEnv(HelmChartWatchesEnvVar); ok {
-		return watchesFile, true
-	}
-
-	// Next, check if the default watches file is present. If so, use it.
-	if _, err := os.Stat(defaultHelmChartWatchesFile); err == nil {
-		return defaultHelmChartWatchesFile, true
-	}
-	return "", false
 }
 
 // ReconcileRelease accepts a custom resource, ensures the described release is deployed,
