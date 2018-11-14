@@ -50,6 +50,7 @@ func (o *OwnerRefEngine) Render(chart *chart.Chart, values chartutil.Values) (ma
 	ownedRenderedFiles := map[string]string{}
 	for fileName, renderedFile := range rendered {
 		if !strings.HasSuffix(fileName, ".yaml") {
+			ownedRenderedFiles[fileName] = renderedFile
 			continue
 		}
 		logrus.Debugf("adding ownerrefs to file: %s", fileName)
