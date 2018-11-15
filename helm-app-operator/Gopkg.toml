@@ -61,10 +61,13 @@ required = [
   [[prune.project]]
     name = "k8s.io/code-generator"
     non-go = false
-    unused-packages = false
 
 [[constraint]]
   name = "github.com/operator-framework/operator-sdk"
   # The version rule is used for a specific release and the master branch for in between releases.
   branch = "master"
   # version = "=v0.0.6"
+
+[[constraint]]
+  name = "k8s.io/helm"
+  version = "=v2.11.0"
