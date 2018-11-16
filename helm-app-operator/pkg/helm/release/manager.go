@@ -22,29 +22,21 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/martinlindhe/base36"
-	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"
 
 	yaml "gopkg.in/yaml.v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/helm/pkg/chartutil"
-	helmengine "k8s.io/helm/pkg/engine"
 	"k8s.io/helm/pkg/kube"
 	cpb "k8s.io/helm/pkg/proto/hapi/chart"
 	rpb "k8s.io/helm/pkg/proto/hapi/release"
 	"k8s.io/helm/pkg/proto/hapi/services"
 	"k8s.io/helm/pkg/storage"
 	"k8s.io/helm/pkg/tiller"
-	"k8s.io/helm/pkg/tiller/environment"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
 
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/engine"
 	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/internal/types"
 )
 
@@ -52,39 +44,6 @@ var (
 	// ErrNotFound indicates the release was not found.
 	ErrNotFound = errors.New("release not found")
 )
-
-// ManagerFactory creates Managers that are specific to custom resources. It is
-// used by the HelmOperatorReconciler during resource reconciliation, and it
-// improves decoupling between reconciliation logic and the Helm backend
-// components used to manage releases.
-type ManagerFactory interface {
-	NewManager(r *unstructured.Unstructured) Manager
-}
-
-type managerFactory struct {
-	storageBackend   *storage.Storage
-	tillerKubeClient *kube.Client
-	chartDir         string
-}
-
-func (f managerFactory) NewManager(r *unstructured.Unstructured) Manager {
-	return f.newManagerForCR(r)
-}
-
-func (f managerFactory) newManagerForCR(r *unstructured.Unstructured) Manager {
-	return &manager{
-		storageBackend:   f.storageBackend,
-		tillerKubeClient: f.tillerKubeClient,
-		chartDir:         f.chartDir,
-
-		tiller:      f.tillerRendererForCR(r),
-		releaseName: getReleaseName(r),
-		namespace:   r.GetNamespace(),
-
-		spec:   r.Object["spec"],
-		status: types.StatusFor(r),
-	}
-}
 
 // Manager manages a Helm release. It can install, update, reconcile,
 // and uninstall a release.
@@ -370,33 +329,6 @@ func (m manager) syncReleaseStatus(status types.HelmAppStatus) error {
 	return m.storageBackend.Create(status.Release)
 }
 
-// tillerRendererForCR creates a ReleaseServer configured with a rendering engine that adds ownerrefs to rendered assets
-// based on the CR.
-func (f managerFactory) tillerRendererForCR(r *unstructured.Unstructured) *tiller.ReleaseServer {
-	controllerRef := metav1.NewControllerRef(r, r.GroupVersionKind())
-	ownerRefs := []metav1.OwnerReference{
-		*controllerRef,
-	}
-	baseEngine := helmengine.New()
-	e := engine.NewOwnerRefEngine(baseEngine, ownerRefs)
-	var ey environment.EngineYard = map[string]environment.Engine{
-		environment.GoTplEngine: e,
-	}
-	env := &environment.Environment{
-		EngineYard: ey,
-		Releases:   f.storageBackend,
-		KubeClient: f.tillerKubeClient,
-	}
-	kubeconfig, _ := f.tillerKubeClient.ToRESTConfig()
-	internalClientSet, _ := internalclientset.NewForConfig(kubeconfig)
-
-	return tiller.NewReleaseServer(env, internalClientSet, false)
-}
-
-func getReleaseName(r *unstructured.Unstructured) string {
-	return fmt.Sprintf("%s-%s", r.GetName(), shortenUID(r.GetUID()))
-}
-
 func notFoundErr(err error) bool {
 	return strings.Contains(err.Error(), "not found")
 }
@@ -414,15 +346,6 @@ func processRequirements(chart *cpb.Chart, values *cpb.Config) error {
 		return err
 	}
 	return nil
-}
-
-func shortenUID(uid apitypes.UID) string {
-	u := uuid.Parse(string(uid))
-	uidBytes, err := u.MarshalBinary()
-	if err != nil {
-		return strings.Replace(string(uid), "-", "", -1)
-	}
-	return strings.ToLower(base36.EncodeBytes(uidBytes))
 }
 
 func (m manager) getDeployedRelease() (*rpb.Release, error) {
