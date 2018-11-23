@@ -29,6 +29,8 @@ kubectl create -n <operator-namespace> -f operator.yaml
 
 ### Using the Operator Lifecycle Manager:
 
+NOTE: Operator Lifecycle Manager must be [installed](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/Documentation/install/install.md) in the cluster in advance.
+
 ```sh
 kubectl create -f crd.yaml
 
