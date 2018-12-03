@@ -21,7 +21,10 @@ import (
 	"runtime"
 	"time"
 
-	k8sutil "github.com/operator-framework/operator-sdk/pkg/util/k8sutil"
+	"github.com/operator-framework/operator-sdk/pkg/helm/client"
+	"github.com/operator-framework/operator-sdk/pkg/helm/controller"
+	"github.com/operator-framework/operator-sdk/pkg/helm/release"
+	k8sutil "github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	sdkVersion "github.com/operator-framework/operator-sdk/version"
 	"k8s.io/helm/pkg/storage"
 	"k8s.io/helm/pkg/storage/driver"
@@ -29,10 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
-
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/client"
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/controller"
-	"github.com/operator-framework/helm-app-operator-kit/helm-app-operator/pkg/helm/release"
 )
 
 var log = logf.Log.WithName("cmd")
