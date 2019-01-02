@@ -1,5 +1,9 @@
-# Example: Tomcat Operator
+# [DEPRECATED] Example: Tomcat Operator
 
+**This example is deprecated. The Helm operator functionality has been integrated into the [Operator SDK][operator-sdk] as of v0.3.0. To get started developing a Helm operator with the SDK, see the [Helm operator user guide][helm-user-guide].**
+
+
+## Overview 
 Simple Operator using the official [Tomcat Helm Chart](https://github.com/kubernetes/charts/tree/master/stable/tomcat) and deployed directly or using the [Operator Lifecycle Manager](https://github.com/operator-framework/operator-lifecycle-manager).
 
 ## Build and push the tomcat-operator container
@@ -43,3 +47,6 @@ kubectl create -n <operator-namespace> -f csv.yaml
 ```sh
 kubectl create -n <operator-namespace> -f cr.yaml
 ```
+
+[operator-sdk]:https://github.com/operator-framework/operator-sdk
+[helm-user-guide]:https://github.com/operator-framework/operator-sdk/blob/master/doc/helm/user-guide.md

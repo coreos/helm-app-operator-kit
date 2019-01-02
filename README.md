@@ -1,4 +1,8 @@
-# Helm App Operator Kit
+# [DEPRECATED] Helm App Operator Kit
+
+**This project is deprecated. Its functionality has been integrated into the [Operator SDK][operator-sdk] as of v0.3.0. To get started developing a Helm operator with the SDK, see the [Helm operator user guide][helm-user-guide].**
+
+## Overview
 
 This project is a component of the [Operator Framework](https://github.com/operator-framework), an open source toolkit to manage Kubernetes native applications, called Operators, in an effective, automated, and scalable way. Read more in the [introduction blog post](https://coreos.com/blog/introducing-operator-framework).
 
@@ -20,5 +24,7 @@ cd helm-app-operator-kit
 
 See the [helm-app-operator](./helm-app-operator) subdirectory for more details about how to build and deploy a custom operator with Helm App Operator Kit or follow along with a simple [tomcat-operator](./examples/tomcat-operator) example.
 
+[operator-sdk]: https://github.com/operator-framework/operator-sdk
+[helm-user-guide]:https://github.com/operator-framework/operator-sdk/blob/master/doc/helm/user-guide.md
 [helm-sdk]: ./
 [olm-repo]: https://github.com/operator-framework/operator-lifecycle-manager

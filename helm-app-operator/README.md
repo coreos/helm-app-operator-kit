@@ -1,4 +1,6 @@
-# Helm App Operator
+# [DEPRECATED] Helm App Operator
+
+**This project is deprecated. Its functionality has been integrated into the [Operator SDK][operator_sdk] as of v0.3.0. To get started developing a Helm operator with the SDK, see the [Helm operator user guide][helm_user_guide].**
 
 ![Travis CI Build Status](https://travis-ci.org/operator-framework/helm-app-operator-kit.svg?branch=master "Travis CI Build Status")
 
@@ -175,3 +177,4 @@ We'll use a tomcat-operator as an example.
 [go_tool]:https://golang.org/dl/
 [docker_tool]:https://docs.docker.com/install/
 [operator_sdk]:https://github.com/operator-framework/operator-sdk
+[helm_user_guide]:https://github.com/operator-framework/operator-sdk/blob/master/doc/helm/user-guide.md
