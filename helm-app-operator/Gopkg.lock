@@ -490,7 +490,7 @@
   version = "v1.0.1"
 
 [[projects]]
-  digest = "1:25c007d9329a7240b7011d3f733dbfb5ec797af09c21a89a159439b0497e8e21"
+  digest = "1:0b2dd5813eba320fd99869c1a5c4b54eb6950544259f2389c5b137be2168429a"
   name = "github.com/operator-framework/operator-sdk"
   packages = [
     "internal/util/diffutil",
@@ -500,11 +500,12 @@
     "pkg/helm/internal/types",
     "pkg/helm/release",
     "pkg/k8sutil",
+    "pkg/predicate",
     "version",
   ]
   pruneopts = "NT"
-  revision = "15244d60ef7e328531a4f150a05b1fdabf9cc1ae"
-  version = "v0.3.0"
+  revision = "cc5fe885869c181d820557bd296f092637fa70af"
+  version = "v0.4.0"
 
 [[projects]]
   digest = "1:93b1d84c5fa6d1ea52f4114c37714cddd84d5b78f151b62bb101128dd51399bf"
