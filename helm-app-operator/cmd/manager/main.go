@@ -89,10 +89,11 @@ func main() {
 	for gvk, factory := range factories {
 		// Register the controller with the factory.
 		err := controller.Add(mgr, controller.WatchOptions{
-			Namespace:      namespace,
-			GVK:            gvk,
-			ManagerFactory: factory,
-			ResyncPeriod:   5 * time.Second,
+			Namespace:               namespace,
+			GVK:                     gvk,
+			ManagerFactory:          factory,
+			ReconcilePeriod:         time.Minute,
+			WatchDependentResources: true,
 		})
 		if err != nil {
 			log.Error(err, "")
