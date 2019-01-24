@@ -78,14 +78,14 @@ fi
 # create CR
 kubectl create -f deploy/cr.yaml
 trap_add 'kubectl delete --ignore-not-found -f ${DIR1}/deploy/cr.yaml' EXIT
-if ! timeout 1m bash -c -- 'until kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.info.status.code}" | grep 1; do sleep 1; done';
+if ! timeout 1m bash -c -- 'until kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.conditions[1].release.info.status.code}" | grep 1; do sleep 1; done';
 then
     kubectl describe crds
     kubectl logs deployment/memcached-operator
     exit 1
 fi
 
-release_name=$(kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.release.name}")
+release_name=$(kubectl get memcacheds.helm.example.com my-test-app -o jsonpath="{..status.conditions[1].release.name}")
 memcached_statefulset=$(kubectl get statefulset -l release=${release_name} -o jsonpath="{..metadata.name}")
 kubectl patch statefulset ${memcached_statefulset} -p '{"spec":{"updateStrategy":{"type":"RollingUpdate"}}}'
 if ! timeout 1m kubectl rollout status statefulset/${memcached_statefulset};
